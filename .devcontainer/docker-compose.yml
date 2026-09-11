@@ -1,0 +1,32 @@
+services:
+  app:
+    image: python@sha256:bc389f7dfcb21413e72a28f491985326994795e34d2b86c8ae2f417b4e7818aa # 3.14-slim-trixie
+    command: sleep infinity # Is necessary so that the container does not shut down.
+    volumes:
+      - "../:/workspace"
+    networks:
+      - app
+  sftp:
+    image: linuxserver/openssh-server@sha256:742f577d4100f5ad3b38f270d722931bbe98b997444c13b1a2a838df12a9971e # version-10.2_p1-r0
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - PASSWORD_ACCESS=true
+      - USER_NAME=test
+      - USER_PASSWORD=test
+      - SFTP_MODE=true
+    ports:
+      - 2222:2222
+    volumes:
+      - sftp-data:/home/test
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  sftp-data:
+    driver: local

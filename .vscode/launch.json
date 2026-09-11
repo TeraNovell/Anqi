@@ -1,0 +1,28 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Anqi CLI",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "anqi.main",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "args": [
+        "--archive-prefix=pytest",
+        "--src=./src/anqi/**/*.py",
+        "--dst=/tmp",
+        "-t=sftp",
+        "--sftp-host=sftp",
+        "--sftp-port=2222",
+        "--sftp-user=test",
+        "--sftp-password=test",
+        "-k=1"
+      ]
+    }
+  ]
+}
