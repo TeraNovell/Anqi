@@ -88,7 +88,8 @@ if (values?.version) {
 }
 
 const keep = Number.parseInt(values.keep ?? "");
-if (keep < 0) throw new Error("Keep value must be a positive integer!");
+if (!keep || keep < 0)
+    throw new Error("Keep value must be a positive integer!");
 
 const compress = values?.compress ?? false;
 

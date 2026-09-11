@@ -105,8 +105,6 @@ export async function createSftpArchive(
             await sftp.delete(archivePath).catch(() => {});
             await sftp.delete(hashPath).catch(() => {});
 
-            await sftp.end();
-
             throw error;
         }
 
