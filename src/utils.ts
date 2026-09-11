@@ -12,7 +12,7 @@ export async function writeArchive(
 ) {
     const paths = new Set<string>();
 
-    for await (const source of sources) {
+    for (const source of sources) {
         if (hasMagic(source)) {
             for await (const path of glob(source)) {
                 console.log(`Adding file: ${path}`);

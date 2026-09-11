@@ -1,6 +1,6 @@
 services:
   app:
-    image: node@sha256:c0753125a3789977aefe869cbebccf70e3cfd7ea84ca48547458f02e4f1d7146 # 3.14-slim-trixie
+    image: node@sha256:14bf3eac4bf209d906d3c41256597d3ab1f926b2e93a79e9bdfe1efd32454239 # 26-trixie-slim
     command: sleep infinity # Is necessary so that the container does not shut down.
     volumes:
       - "../:/workspace"

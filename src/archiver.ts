@@ -80,55 +80,57 @@ export async function createSftpArchive(
     try {
         await sftp.connect(sftpConfig);
 
-        const archiveData = await writeArchive(
-            sources,
-            sftp.createWriteStream(archivePath),
-            compress,
-        );
-
-        if ((await sftp.stat(archivePath))?.size !== archiveData.size) {
-            throw new Error(
-                `File size mismatch after upload for ${archivePath}`,
+        try {
+            const archiveData = await writeArchive(
+                sources,
+                sftp.createWriteStream(archivePath),
+                compress,
             );
+
+            if ((await sftp.stat(archivePath))?.size !== archiveData.size) {
+                throw new Error(
+                    `File size mismatch after upload for ${archivePath}`,
+                );
+            }
+
+            await sftp.put(
+                Buffer.from(
+                    `${archiveData.hash.digest("hex")}  ${archiveDescription.fullFilename}\n`,
+                ),
+                hashPath,
+            );
+
+            console.log(`Backup created at ${archivePath}`, archiveData.size);
+        } catch (error) {
+            await sftp.delete(archivePath).catch(() => {});
+            await sftp.delete(hashPath).catch(() => {});
+
+            await sftp.end();
+
+            throw error;
         }
 
-        await sftp.put(
-            Buffer.from(
-                `${archiveData.hash.digest("hex")}  ${archiveDescription.fullFilename}\n`,
-            ),
-            hashPath,
-        );
+        if (keep <= 0) return;
 
-        console.log(`Backup created at ${archivePath}`, archiveData.size);
-    } catch (error) {
-        await unlink(archivePath).catch(() => {});
-        await unlink(hashPath).catch(() => {});
+        const fileNames = (await sftp.list(destination))
+            ?.filter((x) => x.type === "-")
+            ?.map((x) => x.name);
 
+        for (const name of findOldArchives(
+            fileNames,
+            archiveDescription.prefix,
+            archiveDescription.extension,
+            keep,
+        )) {
+            const filePath = path.posix.join(destination, name);
+            await sftp.delete(filePath);
+
+            if (fileNames.includes(`${name}.sha256`)) {
+                await sftp.delete(`${filePath}.sha256`);
+            }
+            console.log(`Backup deleted at ${filePath}`);
+        }
+    } finally {
         await sftp.end();
-
-        throw error;
     }
-
-    if (keep <= 0) return;
-
-    const fileNames = (await sftp.list(destination))
-        ?.filter((x) => x.type === "-")
-        ?.map((x) => x.name);
-
-    for (const name of findOldArchives(
-        fileNames,
-        archiveDescription.prefix,
-        archiveDescription.extension,
-        keep,
-    )) {
-        const filePath = path.posix.join(destination, name);
-        await sftp.delete(filePath);
-
-        if (fileNames.includes(`${name}.sha256`)) {
-            await sftp.delete(`${filePath}.sha256`);
-        }
-        console.log(`Backup deleted at ${filePath}`);
-    }
-
-    await sftp.end();
 }

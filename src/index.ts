@@ -79,17 +79,16 @@ const { values } = parseArgs({
 
 if (values?.help || Object.keys(values).length === 0) {
     console.log(generateHelp(options, "Anqi - A really simple backup tool"));
-    process.exit(1);
+    process.exit(0);
 }
 
 if (values?.version) {
     console.log(packageJson.version);
-    process.exit(1);
+    process.exit(0);
 }
 
 const keep = Number.parseInt(values.keep ?? "");
-if (!keep || keep <= 0)
-    throw new Error("Keep value must be a positive integer!");
+if (keep < 0) throw new Error("Keep value must be a positive integer!");
 
 const compress = values?.compress ?? false;
 
@@ -127,17 +126,14 @@ if (values.target === "sftp") {
     const options: SftpClient.ConnectOptions = {
         host: values["sftp-host"],
         port,
+        username: values["sftp-user"],
     };
 
+    const password = values["sftp-password"];
     const sftpKey = values["sftp-key"];
     if (sftpKey) {
         options.privateKey = readFileSync(sftpKey);
-    }
-
-    const username = values["sftp-user"];
-    const password = values["sftp-password"];
-    if (!sftpKey && !!username && !!password) {
-        options.username = username;
+    } else if (password) {
         options.password = password;
     }
 
