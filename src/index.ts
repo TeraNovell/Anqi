@@ -1,151 +1,173 @@
+#!/usr/bin/env node
+
+import { InvalidArgumentError, Option, program } from "commander";
 import { readFileSync } from "node:fs";
-import { parseArgs } from "node:util";
+import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
-import packageJson from "../package.json" with { type: "json" };
 import { createLocalArchive, createSftpArchive } from "./archiver.ts";
-import { ArchiveDescription } from "./types.ts";
-import { generateHelp } from "./utils.ts";
+import { logError, setDebug } from "./logger.ts";
+import { ArchiveDescription, Options } from "./types.ts";
 
-const options = {
-    help: {
-        type: "boolean",
-        short: "h",
-    },
-    version: {
-        type: "boolean",
-        short: "v",
-    },
-    src: {
-        type: "string",
-        short: "s",
-        multiple: true,
-        description:
-            "Path or glob pattern of a file or directory to back up (repeatable)",
-    },
-    dst: {
-        type: "string",
-        short: "d",
-        description:
-            "Destination directory path where the backup archive will be stored",
-    },
-    target: {
-        type: "string",
-        short: "t",
-        description: "Backup destination type (default: local)",
-    },
-    keep: {
-        type: "string",
-        short: "k",
-        description:
-            "Number of most recent backups to retain (older archives are deleted)",
-    },
-    compress: {
-        type: "boolean",
-        short: "c",
-    },
-    "archive-prefix": {
-        type: "string",
-        description:
-            "Prefix for the generated archive filename (default: archive)",
-    },
-    "sftp-host": {
-        type: "string",
-        description:
-            "Hostname or IP address of the SFTP server (required for SFTP target)",
-    },
-    "sftp-port": {
-        type: "string",
-        description: "Port number of the SFTP server (default: 22)",
-    },
-    "sftp-user": {
-        type: "string",
-        description:
-            "Username for SFTP authentication (required for SFTP target)",
-    },
-    "sftp-password": {
-        type: "string",
-        description: "Password for SFTP authentication",
-    },
-    "sftp-key": {
-        type: "string",
-        description: "Path to private SSH key file for SFTP authentication",
-    },
-} as const;
-
-const { values } = parseArgs({
-    options,
-    allowPositionals: true,
-});
-
-if (values?.help || Object.keys(values).length === 0) {
-    console.log(generateHelp(options, "Anqi - A really simple backup tool"));
-    process.exit(0);
-}
-
-if (values?.version) {
-    console.log(packageJson.version);
-    process.exit(0);
-}
-
-const keep = Number.parseInt(values.keep ?? "");
-if (!keep || keep < 0)
-    throw new Error("Keep value must be a positive integer!");
-
-const compress = values?.compress ?? false;
-
-const archiveDescription = new ArchiveDescription(
-    values["archive-prefix"] ?? "archive",
-    compress ? ".tar.gz" : ".tar",
+const packageJson: { version: string } = JSON.parse(
+    readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf8"),
 );
 
-if (!values.src || !values.dst)
-    throw new Error(
-        "At least one source and one destination need to be specified!",
+program
+    .name("anqi")
+    .description("Anqi - A really simple backup tool")
+    .version(packageJson.version, "-v, --version")
+    .requiredOption(
+        "-s, --src <path>",
+        "Path or glob pattern of a file or directory to back up (repeatable)",
+        (value: string, previous: string[] = []) => {
+            return [...previous, value];
+        },
+    )
+    .requiredOption(
+        "-d, --dst <path>",
+        "Destination directory path where the backup archive will be stored",
+    )
+    .addOption(
+        new Option("-t, --target <type>", "Backup destination type")
+            .choices(["local", "sftp"])
+            .default("local"),
+    )
+    .option(
+        "-k, --keep <count>",
+        "Number of most recent backups to retain. Older archives are deleted",
+        (value: string) => {
+            const keep = Number.parseInt(value, 10);
+            if (Number.isNaN(keep) || keep < 0) {
+                throw new InvalidArgumentError(
+                    "Keep value must be a non-negative integer!",
+                );
+            }
+            return keep;
+        },
+        0,
+    )
+    .addOption(
+        new Option(
+            "-c, --compress <type>",
+            "Compress the backup archive",
+        ).choices(["zstd", "gzip"]),
+    )
+    .option(
+        "--compress-level <level>",
+        "Override compression level",
+        (value: string) => {
+            const level = Number.parseInt(value, 10);
+            if (Number.isNaN(level) || level <= 0) {
+                throw new InvalidArgumentError(
+                    "Compress level must be a positive integer!",
+                );
+            }
+            return level;
+        },
+    )
+    .option(
+        "--archive-prefix <prefix>",
+        "Prefix for the generated archive filename",
+        "archive",
+    )
+    .option("--debug", "Enable verbose debug logging", false)
+    .optionsGroup("SFTP target options:")
+    .option("--sftp-host <host>", "Hostname or IP address of the SFTP server")
+    .option(
+        "--sftp-port <port>",
+        "Port number of the SFTP server",
+        (value: string) => {
+            const port = Number.parseInt(value, 10);
+            if (Number.isNaN(port) || port <= 0 || port > 65535) {
+                throw new InvalidArgumentError(
+                    "Port must be a valid port number (1-65535)!",
+                );
+            }
+            return port;
+        },
+        22,
+    )
+    .addOption(
+        new Option(
+            "--sftp-user <user>",
+            "Username for SFTP authentication",
+        ).env("ANQI_SFTP_USERNAME"),
+    )
+    .addOption(
+        new Option(
+            "--sftp-password <password>",
+            "Password for SFTP authentication",
+        ).env("ANQI_SFTP_PASSWORD"),
+    )
+    .option(
+        "--sftp-key <path>",
+        "Path to private SSH key file for SFTP authentication",
     );
 
-const start = performance.now();
+program.action(async () => {
+    const opts = program.opts<Options>();
 
-if (values.target === "local") {
-    await createLocalArchive(
-        values.src,
-        values.dst,
-        archiveDescription,
-        compress,
-        keep,
+    setDebug(opts.debug);
+
+    const archiveDescription = new ArchiveDescription(
+        opts.archivePrefix,
+        opts.compress
+            ? { compressor: opts.compress, level: opts.compressLevel }
+            : undefined,
     );
-}
 
-if (values.target === "sftp") {
-    if (!values["sftp-host"] || !values["sftp-user"])
-        throw new Error(
-            "Host and username need to be specified for an sftp connection!",
-        );
+    console.log(
+        `Creating archive ${path.join(opts.dst, archiveDescription.fullFilename)} ...`,
+    );
 
-    let port = Number.parseInt(values["sftp-port"] ?? "");
-    if (!port) port = 22;
+    const start = performance.now();
 
-    const options: SftpClient.ConnectOptions = {
-        host: values["sftp-host"],
-        port,
-        username: values["sftp-user"],
-    };
+    switch (opts.target) {
+        case "local":
+            await createLocalArchive(
+                opts.src,
+                opts.dst,
+                archiveDescription,
+                opts.keep,
+            );
+            break;
 
-    const password = values["sftp-password"];
-    const sftpKey = values["sftp-key"];
-    if (sftpKey) {
-        options.privateKey = readFileSync(sftpKey);
-    } else if (password) {
-        options.password = password;
+        case "sftp":
+            if (!opts.sftpHost || !opts.sftpUser) {
+                throw new Error(
+                    "Host and username need to be specified for an sftp connection!",
+                );
+            }
+
+            const sftpOptions: SftpClient.ConnectOptions = {
+                host: opts.sftpHost,
+                port: opts.sftpPort,
+                username: opts.sftpUser,
+            };
+
+            if (opts.sftpKey) {
+                sftpOptions.privateKey = readFileSync(opts.sftpKey);
+            } else {
+                sftpOptions.password = opts.sftpPassword;
+            }
+
+            await createSftpArchive(
+                opts.src,
+                opts.dst,
+                archiveDescription,
+                opts.keep,
+                sftpOptions,
+            );
+            break;
+
+        default:
+            break;
     }
 
-    await createSftpArchive(
-        values.src,
-        values.dst,
-        archiveDescription,
-        compress,
-        keep,
-        options,
-    );
-}
+    console.log(`Done in ${((performance.now() - start) / 1000).toFixed(2)} s`);
+});
 
-console.log(`Took ${(performance.now() - start)?.toFixed(2)} ms`);
+await program.parseAsync().catch((err: unknown) => {
+    logError(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+});

@@ -2,14 +2,14 @@ import { createWriteStream, statSync } from "node:fs";
 import { readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
+import { formatBytes, logSuccess } from "./logger.ts";
 import { ArchiveDescription } from "./types.ts";
 import { findOldArchives, writeArchive } from "./utils.ts";
 
 export async function createLocalArchive(
     sources: string[],
     destination: string,
-    archiveDescription: ArchiveDescription,
-    compress: boolean,
+    archive: ArchiveDescription,
     keep: number,
 ) {
     if (!statSync(destination, { throwIfNoEntry: false })?.isDirectory()) {
@@ -18,21 +18,23 @@ export async function createLocalArchive(
         );
     }
 
-    const archivePath = path.join(destination, archiveDescription.fullFilename);
+    const archivePath = path.join(destination, archive.fullFilename);
     const hashPath = `${archivePath}.sha256`;
 
     try {
         const archiveData = await writeArchive(
             sources,
             createWriteStream(archivePath),
-            compress,
+            archive.compression,
         );
         await writeFile(
             hashPath,
-            `${archiveData.hash.digest("hex")}  ${archiveDescription.fullFilename}\n`,
+            `${archiveData.hash}  ${archive.fullFilename}\n`,
         );
 
-        console.log(`Backup created at ${archivePath}`, archiveData.size);
+        logSuccess(
+            `Archive created at ${archivePath} with ${formatBytes(archiveData.size)}`,
+        );
     } catch (error) {
         await unlink(archivePath).catch(() => {});
         await unlink(hashPath).catch(() => {});
@@ -47,8 +49,8 @@ export async function createLocalArchive(
 
     for (const name of findOldArchives(
         fileNames,
-        archiveDescription.prefix,
-        archiveDescription.extension,
+        archive.prefix,
+        archive.extension,
         keep,
     )) {
         const filePath = path.join(destination, name);
@@ -57,22 +59,18 @@ export async function createLocalArchive(
         if (fileNames.includes(`${name}.sha256`))
             await unlink(`${filePath}.sha256`);
 
-        console.log(`Backup deleted at ${filePath}`);
+        logSuccess(`Archive deleted at ${filePath}`);
     }
 }
 
 export async function createSftpArchive(
     sources: string[],
     destination: string,
-    archiveDescription: ArchiveDescription,
-    compress: boolean,
+    archive: ArchiveDescription,
     keep: number,
     sftpConfig: SftpClient.ConnectOptions,
 ) {
-    const archivePath = path.posix.join(
-        destination,
-        archiveDescription.fullFilename,
-    );
+    const archivePath = path.posix.join(destination, archive.fullFilename);
     const hashPath = `${archivePath}.sha256`;
 
     const sftp = new SftpClient();
@@ -80,11 +78,17 @@ export async function createSftpArchive(
     try {
         await sftp.connect(sftpConfig);
 
+        if ((await sftp.exists(destination)) !== "d") {
+            throw new Error(
+                `Destination ${destination} is not a directory or does not exist!`,
+            );
+        }
+
         try {
             const archiveData = await writeArchive(
                 sources,
                 sftp.createWriteStream(archivePath),
-                compress,
+                archive.compression,
             );
 
             if ((await sftp.stat(archivePath))?.size !== archiveData.size) {
@@ -94,17 +98,16 @@ export async function createSftpArchive(
             }
 
             await sftp.put(
-                Buffer.from(
-                    `${archiveData.hash.digest("hex")}  ${archiveDescription.fullFilename}\n`,
-                ),
+                Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`),
                 hashPath,
             );
 
-            console.log(`Backup created at ${archivePath}`, archiveData.size);
+            logSuccess(
+                `Archive created at ${archivePath} with ${formatBytes(archiveData.size)}`,
+            );
         } catch (error) {
             await sftp.delete(archivePath).catch(() => {});
             await sftp.delete(hashPath).catch(() => {});
-
             throw error;
         }
 
@@ -116,17 +119,17 @@ export async function createSftpArchive(
 
         for (const name of findOldArchives(
             fileNames,
-            archiveDescription.prefix,
-            archiveDescription.extension,
+            archive.prefix,
+            archive.extension,
             keep,
         )) {
             const filePath = path.posix.join(destination, name);
             await sftp.delete(filePath);
 
-            if (fileNames.includes(`${name}.sha256`)) {
+            if (fileNames.includes(`${name}.sha256`))
                 await sftp.delete(`${filePath}.sha256`);
-            }
-            console.log(`Backup deleted at ${filePath}`);
+
+            logSuccess(`Archive deleted at ${filePath}`);
         }
     } finally {
         await sftp.end();

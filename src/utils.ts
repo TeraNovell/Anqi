@@ -1,40 +1,58 @@
+import dayjs from "dayjs";
+import customParseFormat from "dayjs/plugin/customParseFormat.js";
 import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
 import { glob } from "node:fs/promises";
 import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { create } from "tar";
+import { logDebug, logWarning } from "./logger.ts";
+import { CompressionDescription } from "./types.ts";
+
+dayjs.extend(customParseFormat);
 
 export async function writeArchive(
     sources: string[],
     destination: Writable,
-    compress: boolean,
+    compression?: CompressionDescription,
 ) {
     const paths = new Set<string>();
 
     for (const source of sources) {
         if (hasMagic(source)) {
             for await (const path of glob(source)) {
-                console.log(`Adding file: ${path}`);
+                logDebug(`Adding ${source}`);
                 paths.add(path);
             }
             continue;
         }
 
         if (!statSync(source, { throwIfNoEntry: false })) {
-            console.warn(`Source path ${source} does not exist!`);
+            logWarning(`Source path ${source} does not exist!`);
             continue;
         }
 
         paths.add(source);
-        console.log(`Adding file: ${source}`);
+        logDebug(`Adding ${source}`);
     }
 
-    const { stream, hash, getSize } = createHashingTransform();
+    if (paths.size === 0) {
+        throw new Error("No files found to archive!");
+    }
+
+    const { stream, getHash, getSize } = createHashingTransform();
+
     await pipeline(
         create(
             {
-                gzip: compress,
+                gzip:
+                    compression?.compressor === "gzip"
+                        ? { level: compression.level ?? 6 }
+                        : false,
+                zstd:
+                    compression?.compressor === "zstd"
+                        ? { level: compression.level ?? 7 }
+                        : false,
                 portable: true,
                 strict: true,
             },
@@ -44,7 +62,7 @@ export async function writeArchive(
         destination,
     );
 
-    return { hash, size: getSize() };
+    return { hash: getHash(), size: getSize() };
 }
 
 export function findOldArchives(
@@ -54,46 +72,18 @@ export function findOldArchives(
     keep: number,
 ) {
     if (keep <= 0) return [];
+
     const archives = names
         .filter((x) => isArchiveFile(x, prefix, extension))
         .sort();
+
+    for (const name of archives) {
+        logDebug(`Found ${name}`);
+    }
+
     return archives.length <= keep
         ? []
         : archives.slice(0, archives.length - keep);
-}
-
-export type HelpOption = {
-    short?: string;
-    description?: string;
-};
-
-export function generateHelp(
-    options: Record<string, HelpOption>,
-    description?: string,
-) {
-    const entries = Object.entries(options).map(([name, option]) => {
-        const parts = [];
-
-        if (option.short) parts.push(`-${option.short}`);
-
-        parts.push(`--${name}`);
-
-        return [parts.join(", "), option.description] as const;
-    });
-
-    const maxLength = Math.max(...entries.map(([name]) => name.length));
-
-    const lines = [];
-
-    if (description) lines.push(description, "");
-
-    lines.push("Options:");
-
-    for (const [name, description] of entries) {
-        lines.push(`${name.padEnd(maxLength + 3)}${description ?? ""}`);
-    }
-
-    return lines.join("\n");
 }
 
 function createHashingTransform() {
@@ -110,17 +100,23 @@ function createHashingTransform() {
 
     return {
         stream,
-        hash,
+        getHash: () => hash.digest("hex"),
         getSize: () => size,
     };
 }
 
-function isArchiveFile(
-    name: string,
-    prefix: string,
-    extension: string,
-): boolean {
-    return name.startsWith(`${prefix}-`) && name.endsWith(extension);
+function isArchiveFile(name: string, prefix: string, extension: string) {
+    const expectedPrefix = `${prefix}-`;
+
+    if (!name.startsWith(expectedPrefix) || !name.endsWith(extension))
+        return false;
+
+    const timestamp = name.slice(
+        expectedPrefix.length,
+        name.length - extension.length,
+    );
+
+    return dayjs(timestamp, "YYYYMMDD-HHmmss", true).isValid();
 }
 
 function hasMagic(path: string): boolean {

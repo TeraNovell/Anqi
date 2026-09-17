@@ -8,12 +8,14 @@
             "name": "Anqi CLI",
             "type": "node",
             "request": "launch",
-            "program": "${workspaceFolder}/src/index.ts",
+            "program": "${workspaceFolder}/dist/index.js",
+            "preLaunchTask": "npm: build",
             "console": "integratedTerminal",
             "skipFiles": [
                 "<node_internals>/**"
             ],
             "args": [
+                "--debug",
                 "--src=./src/**/*.ts",
                 "--dst=/tmp",
                 "--target=sftp",
@@ -22,7 +24,7 @@
                 "--sftp-user=test",
                 "--sftp-password=test",
                 "--keep=3",
-                "--compress"
+                "--compress=zstd"
             ]
         },
     ]
