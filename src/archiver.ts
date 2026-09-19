@@ -4,7 +4,8 @@ import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
 import { formatBytes, logSuccess } from "./logger.ts";
 import { ArchiveDescription } from "./types.ts";
-import { findOldArchives, writeArchive } from "./utils.ts";
+import { findOldArchives } from "./utils.ts";
+import { writeArchive } from "./writer.ts";
 
 export async function createLocalArchive(
     sources: string[],

@@ -17,11 +17,12 @@
         "commander": "15.0.0",
         "dayjs": "1.11.21",
         "ssh2-sftp-client": "12.1.1",
-        "tar": "7.5.22"
+        "tar-stream": "3.2.0"
     },
     "devDependencies": {
         "@types/node": "24.0.0",
         "@types/ssh2-sftp-client": "9.0.6",
+        "@types/tar-fs": "^2.0.4",
         "typescript": "6.0.3"
     }
 }
