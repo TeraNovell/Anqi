@@ -2,29 +2,20 @@ import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat.js";
 import { createHash } from "node:crypto";
 import { Transform } from "node:stream";
-import { logDebug } from "./logger.ts";
+import { logDebug } from "./log/logger.ts";
 
 dayjs.extend(customParseFormat);
 
-export function findOldArchives(
-    names: string[],
-    prefix: string,
-    extension: string,
-    keep: number,
-) {
+export function findOldArchives(names: string[], prefix: string, extension: string, keep: number) {
     if (keep <= 0) return [];
 
-    const archives = names
-        .filter((x) => isArchiveFile(x, prefix, extension))
-        .sort();
+    const archives = names.filter((x) => isArchiveFile(x, prefix, extension)).sort();
 
     for (const name of archives) {
         logDebug(`Found ${name}`);
     }
 
-    return archives.length <= keep
-        ? []
-        : archives.slice(0, archives.length - keep);
+    return archives.length <= keep ? [] : archives.slice(0, archives.length - keep);
 }
 
 export function createHashingTransform() {
@@ -49,17 +40,9 @@ export function createHashingTransform() {
 function isArchiveFile(name: string, prefix: string, extension: string) {
     const expectedPrefix = `${prefix}-`;
 
-    if (!name.startsWith(expectedPrefix) || !name.endsWith(extension))
-        return false;
+    if (!name.startsWith(expectedPrefix) || !name.endsWith(extension)) return false;
 
-    const timestamp = name.slice(
-        expectedPrefix.length,
-        name.length - extension.length,
-    );
+    const timestamp = name.slice(expectedPrefix.length, name.length - extension.length);
 
     return dayjs(timestamp, "YYYYMMDD-HHmmss", true).isValid();
-}
-
-export function hasMagic(path: string): boolean {
-    return ["*", "?", "[", "]", "{", "}"].some((char) => path.includes(char));
 }

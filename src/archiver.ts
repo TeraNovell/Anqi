@@ -1,8 +1,9 @@
 import { createWriteStream, statSync } from "node:fs";
-import { readdir, unlink, writeFile } from "node:fs/promises";
+import { readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
-import { formatBytes, logSuccess } from "./logger.ts";
+import { formatBytes, formatKnownError, logSuccess, logWarning } from "./log/logger.ts";
+import msg, { type MessageParams } from "./log/messages.ts";
 import { ArchiveDescription } from "./types.ts";
 import { findOldArchives } from "./utils.ts";
 import { writeArchive } from "./writer.ts";
@@ -15,7 +16,9 @@ export async function createLocalArchive(
 ) {
     if (!statSync(destination, { throwIfNoEntry: false })?.isDirectory()) {
         throw new Error(
-            `Destination ${destination} is not a directory or does not exist!`,
+            msg.get("err.noneExistDestination", {
+                path: destination,
+            }),
         );
     }
 
@@ -23,22 +26,38 @@ export async function createLocalArchive(
     const hashPath = `${archivePath}.sha256`;
 
     try {
-        const archiveData = await writeArchive(
-            sources,
-            createWriteStream(archivePath),
-            archive.compression,
-        );
-        await writeFile(
-            hashPath,
-            `${archiveData.hash}  ${archive.fullFilename}\n`,
-        );
+        const archiveData = await writeArchive(sources, createWriteStream(archivePath), archive.compression);
+        await writeFile(hashPath, `${archiveData.hash}  ${archive.fullFilename}\n`);
+
+        if ((await stat(archivePath))?.size !== archiveData.size) {
+            throw new Error(
+                msg.get("err.sizeMismatch", {
+                    path: archivePath,
+                }),
+            );
+        }
 
         logSuccess(
-            `Archive created at ${archivePath} with ${formatBytes(archiveData.size)}`,
+            msg.get("success.archiveCreated", {
+                path: archivePath,
+                size: formatBytes(archiveData.size),
+            }),
         );
     } catch (error) {
-        await unlink(archivePath).catch(() => {});
-        await unlink(hashPath).catch(() => {});
+        await unlink(archivePath).catch(() => {
+            logWarning(
+                msg.get("warn.deleteFailed", {
+                    path: archivePath,
+                }),
+            );
+        });
+        await unlink(hashPath).catch(() => {
+            logWarning(
+                msg.get("warn.deleteFailed", {
+                    path: hashPath,
+                }),
+            );
+        });
         throw error;
     }
 
@@ -48,19 +67,39 @@ export async function createLocalArchive(
         ?.filter((x) => x.isFile())
         ?.map((x) => x.name);
 
-    for (const name of findOldArchives(
-        fileNames,
-        archive.prefix,
-        archive.extension,
-        keep,
-    )) {
+    for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
         const filePath = path.join(destination, name);
-        await unlink(filePath);
+        const hashFilePath = `${filePath}.sha256`;
+
+        let failed = false;
+
+        if (fileNames.includes(name))
+            await unlink(filePath).catch((error) => {
+                failed = true;
+
+                const params: MessageParams = {
+                    path: filePath,
+                };
+                logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
+            });
 
         if (fileNames.includes(`${name}.sha256`))
-            await unlink(`${filePath}.sha256`);
+            await unlink(hashFilePath).catch((error) => {
+                failed = true;
 
-        logSuccess(`Archive deleted at ${filePath}`);
+                const params: MessageParams = {
+                    path: hashFilePath,
+                };
+                logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
+            });
+
+        if (failed) continue;
+
+        logSuccess(
+            msg.get("success.archiveDeleted", {
+                path: filePath,
+            }),
+        );
     }
 }
 
@@ -81,30 +120,30 @@ export async function createSftpArchive(
 
         if ((await sftp.exists(destination)) !== "d") {
             throw new Error(
-                `Destination ${destination} is not a directory or does not exist!`,
+                msg.get("err.noneExistDestination", {
+                    path: destination,
+                }),
             );
         }
 
         try {
-            const archiveData = await writeArchive(
-                sources,
-                sftp.createWriteStream(archivePath),
-                archive.compression,
-            );
+            const archiveData = await writeArchive(sources, sftp.createWriteStream(archivePath), archive.compression);
 
             if ((await sftp.stat(archivePath))?.size !== archiveData.size) {
                 throw new Error(
-                    `File size mismatch after upload for ${archivePath}`,
+                    msg.get("err.sizeMismatch", {
+                        path: archivePath,
+                    }),
                 );
             }
 
-            await sftp.put(
-                Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`),
-                hashPath,
-            );
+            await sftp.put(Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`), hashPath);
 
             logSuccess(
-                `Archive created at ${archivePath} with ${formatBytes(archiveData.size)}`,
+                msg.get("success.archiveCreated", {
+                    path: archivePath,
+                    size: formatBytes(archiveData.size),
+                }),
             );
         } catch (error) {
             await sftp.delete(archivePath).catch(() => {});
@@ -114,25 +153,39 @@ export async function createSftpArchive(
 
         if (keep <= 0) return;
 
-        const fileNames = (await sftp.list(destination))
-            ?.filter((x) => x.type === "-")
-            ?.map((x) => x.name);
+        const fileNames = (await sftp.list(destination))?.filter((x) => x.type === "-")?.map((x) => x.name);
 
-        for (const name of findOldArchives(
-            fileNames,
-            archive.prefix,
-            archive.extension,
-            keep,
-        )) {
+        for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
             const filePath = path.posix.join(destination, name);
-            await sftp.delete(filePath);
+            const hashFilePath = `${filePath}.sha256`;
+
+            let failed = false;
+
+            if (fileNames.includes(name))
+                await sftp.delete(filePath).catch((error) => {
+                    failed = true;
+
+                    const params: MessageParams = {
+                        path: filePath,
+                    };
+                    logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
+                });
 
             if (fileNames.includes(`${name}.sha256`))
-                await sftp.delete(`${filePath}.sha256`);
+                await sftp.delete(hashFilePath).catch((error) => {
+                    failed = true;
 
-            logSuccess(`Archive deleted at ${filePath}`);
+                    const params: MessageParams = {
+                        path: hashFilePath,
+                    };
+                    logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
+                });
+
+            if (failed) continue;
+
+            logSuccess(msg.get("success.archiveDeleted", { path: filePath }));
         }
     } finally {
-        await sftp.end();
+        await sftp.end().catch(() => {});
     }
 }

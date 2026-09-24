@@ -17,6 +17,7 @@
             "args": [
                 "--debug",
                 "--src=./src/**/*.ts",
+                "--src=./.devcontainer/**/*",
                 "--dst=/tmp",
                 "--target=sftp",
                 "--sftp-host=sftp",
