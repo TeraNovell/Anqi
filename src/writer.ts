@@ -5,7 +5,12 @@ import { PassThrough, Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import { pack } from "tar-stream";
-import { countersStorage, formatKnownError, logDebug, logWarning } from "./log/logger.ts";
+import {
+    countersStorage,
+    formatKnownError,
+    logDebug,
+    logWarning,
+} from "./log/logger.ts";
 import msg from "./log/messages.ts";
 import { Counters, type CompressionDescription } from "./types.ts";
 import { createHashingTransform, toPosixPath } from "./utils.ts";
@@ -44,6 +49,7 @@ export async function writeArchive(
         try {
             const seenHardlinks = new Map<string, string>();
 
+            let entryCount = 0;
             let fileCount = 0;
 
             for await (const entry of walk(sources)) {
@@ -67,6 +73,8 @@ export async function writeArchive(
                             mode: stats.mode,
                             mtime: stats.mtime,
                         });
+
+                        entryCount++;
                     } else if (kind?.isSymbolicLink()) {
                         const stats = await lstat(entry.path);
                         tar.entry({
@@ -76,6 +84,8 @@ export async function writeArchive(
                             mtime: stats.mtime,
                             linkname: await readlink(entry.path),
                         });
+
+                        entryCount++;
                     } else if (kind?.isFile()) {
                         const stats = await lstat(entry.path);
 
@@ -95,6 +105,7 @@ export async function writeArchive(
                                     mtime: stats.mtime,
                                     linkname: hardlinkTarget,
                                 });
+                                entryCount++;
                                 continue;
                             }
 
@@ -112,6 +123,7 @@ export async function writeArchive(
                             }) as unknown as Writable,
                         );
 
+                        entryCount++;
                         fileCount++;
 
                         logDebug(`Adding ${entry.path}`);
@@ -151,7 +163,7 @@ export async function writeArchive(
                 }
             }
 
-            if (fileCount <= 0) throw new Error(msg.get("err.noFilesAdded"));
+            if (entryCount <= 0) throw new Error(msg.get("err.nothingAdded"));
 
             tar.finalize();
             console.log(
@@ -160,13 +172,19 @@ export async function writeArchive(
                 }),
             );
         } catch (error) {
-            tar.destroy(error instanceof Error ? error : new Error(String(error)));
+            tar.destroy(
+                error instanceof Error ? error : new Error(String(error)),
+            );
             await stream.catch(() => {});
             throw error;
         }
 
         await stream;
-        return { hash: getHash(), size: getSize(), warnings: counters.warnings };
+        return {
+            hash: getHash(),
+            size: getSize(),
+            warnings: counters.warnings,
+        };
     });
 }
 

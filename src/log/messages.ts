@@ -23,8 +23,8 @@ const messages = {
         "Archive creation failed: File size mismatch after creating {{path}}",
     "err.noneExistDestination":
         "Destination {{path}} is not a directory or does not exist!",
-    "err.noFilesAdded":
-        "Archive creation failed: No files could be added to the archive!",
+    "err.nothingAdded":
+        "Archive creation failed: Nothing could be added to the archive!",
     "err.fileChangedWhileArchiving":
         "Archive creation failed: The file {{path}} changed its size while being streamed!",
 } as const;
