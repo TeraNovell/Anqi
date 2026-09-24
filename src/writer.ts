@@ -1,10 +1,4 @@
-import {
-    walkStream,
-    type ErrorFilterFunction,
-    type Entry as FsWalkEntry,
-} from "@nodelib/fs.walk";
-import fg, { type Options as GlobOptions } from "fast-glob";
-import { createReadStream, Stats } from "node:fs";
+import { createReadStream } from "node:fs";
 import { lstat, readlink } from "node:fs/promises";
 import path from "node:path";
 import { PassThrough, Readable, Writable } from "node:stream";
@@ -15,12 +9,9 @@ import { formatKnownError, logDebug, logWarning } from "./log/logger.ts";
 import msg from "./log/messages.ts";
 import { type CompressionDescription } from "./types.ts";
 import { createHashingTransform, toPosixPath } from "./utils.ts";
+import { walk } from "./walker.ts";
 
-export async function writeArchive(
-    sources: string[],
-    destination: Writable,
-    compression?: CompressionDescription,
-) {
+export async function writeArchive(sources: string[], destination: Writable, compression?: CompressionDescription) {
     const tar = pack();
     const { stream: hasher, getHash, getSize } = createHashingTransform();
 
@@ -28,20 +19,14 @@ export async function writeArchive(
     if (compression?.compressor === "zstd") {
         compressor = zlib.createZstdCompress({
             params: {
-                [zlib.constants.ZSTD_c_compressionLevel]:
-                    compression.level ?? 7,
+                [zlib.constants.ZSTD_c_compressionLevel]: compression.level ?? 7,
             },
         });
     } else if (compression?.compressor === "gzip") {
         compressor = zlib.createGzip({ level: compression.level ?? 6 });
     }
 
-    const stream = pipeline(
-        tar,
-        compressor ?? new PassThrough(),
-        hasher,
-        destination,
-    );
+    const stream = pipeline(tar, compressor ?? new PassThrough(), hasher, destination);
 
     try {
         const seenHardlinks = new Map<string, string>();
@@ -81,11 +66,7 @@ export async function writeArchive(
                 } else if (kind?.isFile()) {
                     const stats = await lstat(entry.path);
 
-                    if (
-                        stats.nlink > 1 &&
-                        (process.platform !== "win32" ||
-                            (stats.dev !== 0 && stats.ino !== -1))
-                    ) {
+                    if (stats.nlink > 1 && (process.platform !== "win32" || (stats.dev !== 0 && stats.ino !== -1))) {
                         const inode = `${stats.dev}:${stats.ino}`;
                         const hardlinkTarget = seenHardlinks.get(inode);
 
@@ -129,10 +110,7 @@ export async function writeArchive(
                 // Once one entry's declared size doesn't match what was actually streamed, the whole tar stream is
                 // corrupted from that point on, so this still has to abort the archive, just with a clearer message
                 // than tar-stream's own error.
-                if (
-                    error instanceof Error &&
-                    error.message.toLowerCase() === "size mismatch"
-                ) {
+                if (error instanceof Error && error.message.toLowerCase() === "size mismatch") {
                     throw new Error(
                         msg.get("err.fileChangedWhileArchiving", {
                             path: entry.path,
@@ -169,128 +147,6 @@ export async function writeArchive(
 
     await stream;
     return { hash: getHash(), size: getSize() };
-}
-
-async function* walk(sources: readonly string[]): AsyncGenerator<WalkEntry> {
-    const seenPaths = new Set<string>();
-
-    for (const source of sources) {
-        if (fg.isDynamicPattern(source)) {
-            yield* resolveGlob(source, seenPaths);
-            continue;
-        }
-
-        const absPath = path.resolve(source);
-
-        let stats: Stats;
-
-        try {
-            stats = await lstat(absPath);
-        } catch (error) {
-            const message = formatKnownError(error, {
-                path: absPath,
-            });
-
-            if (message) {
-                logWarning(message);
-                continue;
-            }
-
-            throw error;
-        }
-
-        if (seenPaths.has(absPath)) continue;
-        seenPaths.add(absPath);
-
-        yield {
-            path: absPath,
-            stats,
-        };
-
-        if (stats.isDirectory()) {
-            yield* resolveDirectory(absPath, seenPaths);
-        }
-    }
-}
-
-// Node's own fs.glob has no option to match dotfiles, so an external library is needed. fast-glob is the only
-// one that also handles symlinks correctly for a backup. With followSymbolicLinks set to false it keeps broken
-// symlinks and doesn't silently drop them while also not following symlinked directories which would archive their
-// contents twice, once under the symlink and once under its target.
-
-const globOptions = {
-    absolute: true,
-    dot: true,
-    onlyFiles: false,
-    followSymbolicLinks: false,
-    objectMode: true,
-    unique: true,
-    suppressErrors: true,
-} as GlobOptions;
-
-async function* resolveGlob(
-    pattern: string,
-    seenPaths: Set<string>,
-): AsyncGenerator<WalkEntry> {
-    const stream = fg.stream(
-        toPosixPath(pattern),
-        globOptions,
-    ) as AsyncIterable<fg.Entry>;
-
-    let absPath = "";
-
-    for await (const entry of stream) {
-        absPath = path.resolve(entry.path);
-
-        if (seenPaths.has(absPath)) continue;
-        seenPaths.add(absPath);
-
-        yield { path: absPath, dirent: entry.dirent };
-    }
-}
-
-async function* resolveDirectory(
-    dirPath: string,
-    seen: Set<string>,
-): AsyncGenerator<WalkEntry> {
-    const errorFilter: ErrorFilterFunction = (error) => {
-        const message = formatKnownError(error, {
-            path: dirPath,
-        });
-
-        if (message) {
-            logWarning(message);
-            return true;
-        }
-
-        throw error instanceof Error ? error : new Error(String(error));
-    };
-
-    const stream = walkStream(dirPath, {
-        followSymbolicLinks: false,
-        errorFilter,
-    });
-
-    for await (const entry of stream as AsyncIterable<FsWalkEntry>) {
-        const absPath = path.resolve(entry.path);
-
-        if (seen.has(absPath)) continue;
-        seen.add(absPath);
-
-        yield { path: absPath, dirent: entry.dirent };
-    }
-}
-
-interface WalkEntry {
-    path: string;
-    stats?: Stats;
-    // Instead of importing fast-glob's or fs.walk's own Dirent type, this only specifies the methods actually used here.
-    // fast-glob depends on an older fs.walk version, and the two Dirent types aren't assignable to each other.
-    dirent?: {
-        isDirectory(): boolean;
-        isSymbolicLink(): boolean;
-        isFile(): boolean;
-    };
 }
 
 // Using pipe is faster than invoking a pipeline for every individual file added to the stream, because pipeline
