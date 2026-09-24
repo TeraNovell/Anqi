@@ -11,14 +11,22 @@ const messages = {
 
     // Warning
     "warn.deleteFailed": "Unable to delete {{path}}. Skipping it.",
-    "warn.unableToAccessNoneExistPath": "Unable to access {{path}}: it no longer exists. Skipping it.",
-    "warn.unableToAccessPath": "Unable to access {{path}}: it cannot be accessed. Skipping it.",
-    "warn.unableToProcessUnknownType": "Unable to process {{path}}: unsupported content type. Skipping it.",
+    "warn.unableToAccessNoneExistPath":
+        "Unable to access {{path}}: it no longer exists. Skipping it.",
+    "warn.unableToAccessPath":
+        "Unable to access {{path}}: it cannot be accessed. Skipping it.",
+    "warn.unableToProcessUnknownType":
+        "Unable to process {{path}}: unsupported content type. Skipping it.",
 
     // Error
-    "err.sizeMismatch": "File size mismatch after archive creation for {{path}}",
-    "err.noneExistDestination": "Destination {{path}} is not a directory or does not exist!",
-    "err.noFilesAdded": "No files were added to the archive!",
+    "err.sizeMismatch":
+        "Archive creation failed: File size mismatch after creating {{path}}",
+    "err.noneExistDestination":
+        "Destination {{path}} is not a directory or does not exist!",
+    "err.noFilesAdded":
+        "Archive creation failed: No files could be added to the archive!",
+    "err.fileChangedWhileArchiving":
+        "Archive creation failed: The file {{path}} changed its size while being streamed!",
 } as const;
 //#endregion
 

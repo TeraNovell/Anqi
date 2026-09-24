@@ -2,7 +2,12 @@ import { createWriteStream, statSync } from "node:fs";
 import { readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
-import { formatBytes, formatKnownError, logSuccess, logWarning } from "./log/logger.ts";
+import {
+    formatBytes,
+    formatKnownError,
+    logSuccess,
+    logWarning,
+} from "./log/logger.ts";
 import msg, { type MessageParams } from "./log/messages.ts";
 import { ArchiveDescription } from "./types.ts";
 import { findOldArchives } from "./utils.ts";
@@ -26,8 +31,15 @@ export async function createLocalArchive(
     const hashPath = `${archivePath}.sha256`;
 
     try {
-        const archiveData = await writeArchive(sources, createWriteStream(archivePath), archive.compression);
-        await writeFile(hashPath, `${archiveData.hash}  ${archive.fullFilename}\n`);
+        const archiveData = await writeArchive(
+            sources,
+            createWriteStream(archivePath),
+            archive.compression,
+        );
+        await writeFile(
+            hashPath,
+            `${archiveData.hash}  ${archive.fullFilename}\n`,
+        );
 
         if ((await stat(archivePath))?.size !== archiveData.size) {
             throw new Error(
@@ -67,7 +79,12 @@ export async function createLocalArchive(
         ?.filter((x) => x.isFile())
         ?.map((x) => x.name);
 
-    for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
+    for (const name of findOldArchives(
+        fileNames,
+        archive.prefix,
+        archive.extension,
+        keep,
+    )) {
         const filePath = path.join(destination, name);
         const hashFilePath = `${filePath}.sha256`;
 
@@ -80,7 +97,10 @@ export async function createLocalArchive(
                 const params: MessageParams = {
                     path: filePath,
                 };
-                logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
+                logWarning(
+                    formatKnownError(error, params) ??
+                        msg.get("warn.deleteFailed", params),
+                );
             });
 
         if (fileNames.includes(`${name}.sha256`))
@@ -90,7 +110,10 @@ export async function createLocalArchive(
                 const params: MessageParams = {
                     path: hashFilePath,
                 };
-                logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
+                logWarning(
+                    formatKnownError(error, params) ??
+                        msg.get("warn.deleteFailed", params),
+                );
             });
 
         if (failed) continue;
@@ -127,7 +150,11 @@ export async function createSftpArchive(
         }
 
         try {
-            const archiveData = await writeArchive(sources, sftp.createWriteStream(archivePath), archive.compression);
+            const archiveData = await writeArchive(
+                sources,
+                sftp.createWriteStream(archivePath),
+                archive.compression,
+            );
 
             if ((await sftp.stat(archivePath))?.size !== archiveData.size) {
                 throw new Error(
@@ -137,7 +164,10 @@ export async function createSftpArchive(
                 );
             }
 
-            await sftp.put(Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`), hashPath);
+            await sftp.put(
+                Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`),
+                hashPath,
+            );
 
             logSuccess(
                 msg.get("success.archiveCreated", {
@@ -153,9 +183,16 @@ export async function createSftpArchive(
 
         if (keep <= 0) return;
 
-        const fileNames = (await sftp.list(destination))?.filter((x) => x.type === "-")?.map((x) => x.name);
+        const fileNames = (await sftp.list(destination))
+            ?.filter((x) => x.type === "-")
+            ?.map((x) => x.name);
 
-        for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
+        for (const name of findOldArchives(
+            fileNames,
+            archive.prefix,
+            archive.extension,
+            keep,
+        )) {
             const filePath = path.posix.join(destination, name);
             const hashFilePath = `${filePath}.sha256`;
 
@@ -168,7 +205,10 @@ export async function createSftpArchive(
                     const params: MessageParams = {
                         path: filePath,
                     };
-                    logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
+                    logWarning(
+                        formatKnownError(error, params) ??
+                            msg.get("warn.deleteFailed", params),
+                    );
                 });
 
             if (fileNames.includes(`${name}.sha256`))
@@ -178,7 +218,10 @@ export async function createSftpArchive(
                     const params: MessageParams = {
                         path: hashFilePath,
                     };
-                    logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
+                    logWarning(
+                        formatKnownError(error, params) ??
+                            msg.get("warn.deleteFailed", params),
+                    );
                 });
 
             if (failed) continue;
