@@ -49,9 +49,8 @@ export async function writeArchive(sources: string[], destination: Writable, com
                 // Convert all paths to relative paths. This prevents absolute paths inside the TAR archive from overwriting
                 // system files. For example, a /etc/passwd entry in the archive could otherwise overwrite /etc/passwd on the
                 // target system during extraction.
-                let start = 0;
-                while (entry.path[start] === "/") start++;
-                const name = entry.path.slice(start);
+                let start = path.win32.parse(entry.path).root.length;
+                const name = toPosixPath(entry.path.slice(start));
 
                 if (entry.stats?.isDirectory()) {
                     tar.entry({
@@ -69,7 +68,10 @@ export async function writeArchive(sources: string[], destination: Writable, com
                         linkname: await readlink(entry.path),
                     });
                 } else if (entry.stats?.isFile()) {
-                    if (entry.stats?.nlink > 1 && (process.platform !== "win32" || entry.stats?.ino !== -1)) {
+                    if (
+                        entry.stats?.nlink > 1 &&
+                        (process.platform !== "win32" || (entry.stats?.dev !== 0 && entry.stats?.ino !== -1))
+                    ) {
                         const inode = `${entry.stats.dev}:${entry.stats.ino}`;
                         const hardlinkTarget = seenHardlinks.get(inode);
 

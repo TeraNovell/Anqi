@@ -13,12 +13,12 @@ export function logSuccess(message: string) {
 
 export function logWarning(message: string, error?: unknown) {
     const prefix = process.stderr.isTTY ? `${styleText("yellow", "⚠ WARNING")}` : "WARNING";
-    console.warn(`${prefix} ${message}`, error ? [error] : []);
+    console.warn(`${prefix} ${message}`, ...(error ? [error] : []));
 }
 
 export function logError(message: string, error?: unknown) {
     const prefix = process.stderr.isTTY ? `${styleText("red", "✖ ERROR")}` : "ERROR";
-    console.error(`${prefix} ${message}`, error ? [error] : []);
+    console.error(`${prefix} ${message}`, ...(error ? [error] : []));
 }
 
 export function logDebug(message: string) {
