@@ -52,3 +52,7 @@ export class ArchiveDescription {
         this.fullFilename = this.filename + this.extension;
     }
 }
+
+export class Counters {
+    public warnings: number = 0;
+}

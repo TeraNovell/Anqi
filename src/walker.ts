@@ -81,7 +81,7 @@ async function* resolveGlob(pattern: string, seenPaths: Set<string>): AsyncGener
 async function* resolveDirectory(dirPath: string, seen: Set<string>): AsyncGenerator<WalkEntry> {
     const errorFilter: ErrorFilterFunction = (error) => {
         const message = formatKnownError(error, {
-            path: dirPath,
+            path: error.path ?? dirPath,
         });
 
         if (message) {

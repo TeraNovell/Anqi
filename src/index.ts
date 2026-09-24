@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
 import { createLocalArchive, createSftpArchive } from "./archiver.ts";
+import constants from "./constants.ts";
 import { logError, setDebug } from "./log/logger.ts";
 import msg from "./log/messages.ts";
 import { ArchiveDescription, type Options } from "./types.ts";
@@ -122,5 +123,5 @@ program.action(async () => {
 
 await program.parseAsync().catch((err: unknown) => {
     logError(err instanceof Error ? err.message : String(err));
-    process.exit(1);
+    process.exit(constants.exitCodes.error);
 });

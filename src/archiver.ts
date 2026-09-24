@@ -2,6 +2,7 @@ import { createWriteStream, statSync } from "node:fs";
 import { readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
+import constants from "./constants.ts";
 import {
     formatBytes,
     formatKnownError,
@@ -55,6 +56,9 @@ export async function createLocalArchive(
                 size: formatBytes(archiveData.size),
             }),
         );
+
+        if (archiveData.warnings > 0)
+            process.exitCode = constants.exitCodes.incomplete;
     } catch (error) {
         await unlink(archivePath).catch(() => {
             logWarning(
@@ -175,6 +179,9 @@ export async function createSftpArchive(
                     size: formatBytes(archiveData.size),
                 }),
             );
+
+            if (archiveData.warnings > 0)
+                process.exitCode = constants.exitCodes.incomplete;
         } catch (error) {
             await sftp.delete(archivePath).catch(() => {});
             await sftp.delete(hashPath).catch(() => {});
