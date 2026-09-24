@@ -1,5 +1,5 @@
-import { ErrorFilterFunction, walkStream, type Entry as FsWalkEntry } from "@nodelib/fs.walk";
-import fg, { Options as GlobOptions } from "fast-glob";
+import { walkStream, type ErrorFilterFunction, type Entry as FsWalkEntry } from "@nodelib/fs.walk";
+import fg, { type Options as GlobOptions } from "fast-glob";
 import { createReadStream, Stats } from "node:fs";
 import { lstat, readlink } from "node:fs/promises";
 import path from "node:path";
@@ -9,7 +9,7 @@ import zlib from "node:zlib";
 import { pack } from "tar-stream";
 import { formatKnownError, logDebug, logWarning } from "./log/logger.ts";
 import msg from "./log/messages.ts";
-import { CompressionDescription } from "./types.ts";
+import { type CompressionDescription } from "./types.ts";
 import { createHashingTransform } from "./utils.ts";
 
 const globOptions = {
@@ -95,7 +95,7 @@ export async function writeArchive(sources: string[], destination: Writable, com
                             size: entry.stats.size,
                             mode: entry.stats.mode,
                             mtime: entry.stats.mtime,
-                        }),
+                        }) as unknown as Writable,
                     );
 
                     fileCount++;

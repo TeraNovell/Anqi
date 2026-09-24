@@ -68,15 +68,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:*":
-  version: 26.2.0
-  resolution: "@types/node@npm:26.2.0"
-  dependencies:
-    undici-types: "npm:~8.3.0"
-  checksum: 10c0/f8566d88162241eb55a46f7e4ea097188eab0aaafefea7a58e63adab8c4144eb98c08b7911452c846104c339a0f82282f5e1ed4b26b578d60709614fe2843f4d
-  languageName: node
-  linkType: hard
-
 "@types/node@npm:24.0.0":
   version: 24.0.0
   resolution: "@types/node@npm:24.0.0"
@@ -113,25 +104,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/tar-fs@npm:2.0.4":
-  version: 2.0.4
-  resolution: "@types/tar-fs@npm:2.0.4"
-  dependencies:
-    "@types/node": "npm:*"
-    "@types/tar-stream": "npm:*"
-  checksum: 10c0/d1dd6944d0905debaabe5787af7f3aeb98f13a928d688d00fb7de0411040f8556c297d388abdd046f6b0646a374b53c198ade0484060b63ef36ad5ac585df138
-  languageName: node
-  linkType: hard
-
-"@types/tar-stream@npm:*":
-  version: 3.1.4
-  resolution: "@types/tar-stream@npm:3.1.4"
-  dependencies:
-    "@types/node": "npm:*"
-  checksum: 10c0/1ee17888b0532f9907788e3e9d60ef25fd5e376c4a09b40aa6ece407fa67ad3d11d25780914ed6360e50451d3039a4e248696c780dcba410779c2d37842afd19
-  languageName: node
-  linkType: hard
-
 "abbrev@npm:^5.0.0":
   version: 5.0.0
   resolution: "abbrev@npm:5.0.0"
@@ -146,12 +118,11 @@ __metadata:
     "@nodelib/fs.walk": "npm:3.0.1"
     "@types/node": "npm:24.0.0"
     "@types/ssh2-sftp-client": "npm:9.0.6"
-    "@types/tar-fs": "npm:2.0.4"
     commander: "npm:15.0.0"
     dayjs: "npm:1.11.21"
     fast-glob: "npm:3.3.3"
     ssh2-sftp-client: "npm:12.1.1"
-    tar-stream: "npm:3.2.0"
+    tar-stream: "npm:3.2.1"
     typescript: "npm:6.0.3"
   bin:
     anqi: ./dist/index.js
@@ -647,15 +618,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tar-stream@npm:3.2.0":
-  version: 3.2.0
-  resolution: "tar-stream@npm:3.2.0"
+"tar-stream@npm:3.2.1":
+  version: 3.2.1
+  resolution: "tar-stream@npm:3.2.1"
   dependencies:
     b4a: "npm:^1.6.4"
     bare-fs: "npm:^4.5.5"
     fast-fifo: "npm:^1.2.0"
     streamx: "npm:^2.15.0"
-  checksum: 10c0/8a06c915f93c9b0906e79867e36a9cfe197da4d41b72e89ec0de99577ae755505d14815c1346b70c2410aa09d3145c3e3af2ff5802b6af84990cdd6c60dbb997
+  checksum: 10c0/0fef57b5e8bf15698f9b4bde4125ab690422cd98ff59cddd76addfb23a6999ad32bddbeeea0858e2756f8a0f36ef4e636a51efe5e8ef4c0a3dac4c2df5714858
   languageName: node
   linkType: hard
 
@@ -754,13 +725,6 @@ __metadata:
   version: 7.8.0
   resolution: "undici-types@npm:7.8.0"
   checksum: 10c0/9d9d246d1dc32f318d46116efe3cfca5a72d4f16828febc1918d94e58f6ffcf39c158aa28bf5b4fc52f410446bc7858f35151367bd7a49f21746cab6497b709b
-  languageName: node
-  linkType: hard
-
-"undici-types@npm:~8.3.0":
-  version: 8.3.0
-  resolution: "undici-types@npm:8.3.0"
-  checksum: 10c0/c8aa7e2fbebfce519654dafadc0ece59be888d2ccaf180fb4495da875e7b536d2456345c384069c7e6f3e9c9ab7435f074957da306f142343eee86ff8048855a
   languageName: node
   linkType: hard
 

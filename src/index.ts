@@ -7,7 +7,7 @@ import SftpClient from "ssh2-sftp-client";
 import { createLocalArchive, createSftpArchive } from "./archiver.ts";
 import { logError, setDebug } from "./log/logger.ts";
 import msg from "./log/messages.ts";
-import { ArchiveDescription, Options } from "./types.ts";
+import { ArchiveDescription, type Options } from "./types.ts";
 
 const packageJson: { version: string } = JSON.parse(
     readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf8"),
