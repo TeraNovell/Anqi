@@ -18,6 +18,7 @@ const messages = {
     // Error
     "err.sizeMismatch": "File size mismatch after archive creation for {{path}}",
     "err.noneExistDestination": "Destination {{path}} is not a directory or does not exist!",
+    "err.noFilesAdded": "No files were added to the archive!",
 } as const;
 //#endregion
 

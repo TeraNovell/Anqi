@@ -37,6 +37,10 @@ export function createHashingTransform() {
     };
 }
 
+export function toPosixPath(location: string) {
+    return process.platform === "win32" ? location.replaceAll("\\", "/") : location;
+}
+
 function isArchiveFile(name: string, prefix: string, extension: string) {
     const expectedPrefix = `${prefix}-`;
 

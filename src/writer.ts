@@ -10,7 +10,7 @@ import { pack } from "tar-stream";
 import { formatKnownError, logDebug, logWarning } from "./log/logger.ts";
 import msg from "./log/messages.ts";
 import { type CompressionDescription } from "./types.ts";
-import { createHashingTransform } from "./utils.ts";
+import { createHashingTransform, toPosixPath } from "./utils.ts";
 
 const globOptions = {
     absolute: true,
@@ -69,7 +69,7 @@ export async function writeArchive(sources: string[], destination: Writable, com
                         linkname: await readlink(entry.path),
                     });
                 } else if (entry.stats?.isFile()) {
-                    if (entry.stats?.nlink > 1) {
+                    if (entry.stats?.nlink > 1 && (process.platform !== "win32" || entry.stats?.ino !== -1)) {
                         const inode = `${entry.stats.dev}:${entry.stats.ino}`;
                         const hardlinkTarget = seenHardlinks.get(inode);
 
@@ -101,6 +101,12 @@ export async function writeArchive(sources: string[], destination: Writable, com
                     fileCount++;
 
                     logDebug(`Adding ${entry.path}`);
+                } else {
+                    logWarning(
+                        msg.get("warn.unableToProcessUnknownType", {
+                            path: entry.path,
+                        }),
+                    );
                 }
             } catch (error) {
                 const message = formatKnownError(error, {
@@ -115,6 +121,8 @@ export async function writeArchive(sources: string[], destination: Writable, com
                 throw error;
             }
         }
+
+        if (fileCount <= 0) throw new Error(msg.get("err.noFilesAdded"));
 
         tar.finalize();
         console.log(
@@ -175,7 +183,7 @@ async function* walk(sources: readonly string[]): AsyncGenerator<WalkEntry> {
 }
 
 async function* resolveGlob(pattern: string, seenPaths: Set<string>): AsyncGenerator<WalkEntry> {
-    const stream = fg.stream(pattern, globOptions) as AsyncIterable<fg.Entry>;
+    const stream = fg.stream(toPosixPath(pattern), globOptions) as AsyncIterable<fg.Entry>;
 
     let absPath = "";
 
