@@ -15,6 +15,10 @@ export async function createLocalArchive(
     archive: ArchiveDescription,
     keep: number,
 ) {
+    const partialPath = path.join(destination, archive.fullPartialFilename);
+    const archivePath = path.join(destination, archive.fullFilename);
+    const checksumPath = path.join(destination, archive.fullChecksumFilename);
+
     if (!statSync(destination, { throwIfNoEntry: false })?.isDirectory()) {
         throw new Error(
             msg.get("err.noneExistDestination", {
@@ -23,9 +27,15 @@ export async function createLocalArchive(
         );
     }
 
-    const archivePath = path.join(destination, archive.fullFilename);
-    const checksumPath = path.join(destination, archive.fullChecksumFilename);
-    const partialPath = path.join(destination, archive.fullPartialFilename);
+    for await (const location of [partialPath, archivePath, checksumPath]) {
+        if (await stat(location).catch(() => null)) {
+            throw new Error(
+                msg.get("err.destinationExists", {
+                    path: location,
+                }),
+            );
+        }
+    }
 
     const handle = await open(partialPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL);
 
@@ -51,7 +61,9 @@ export async function createLocalArchive(
             );
         }
 
-        await writeFile(checksumPath, `${archiveData.hash}  ${archive.fullFilename}\n`);
+        await writeFile(checksumPath, `${archiveData.hash}  ${archive.fullFilename}\n`, {
+            flag: fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL,
+        });
         await rename(partialPath, archivePath);
 
         logSuccess(
@@ -67,13 +79,6 @@ export async function createLocalArchive(
             logWarning(
                 msg.get("warn.deleteFailed", {
                     path: partialPath,
-                }),
-            );
-        });
-        await unlink(checksumPath).catch(() => {
-            logWarning(
-                msg.get("warn.deleteFailed", {
-                    path: checksumPath,
                 }),
             );
         });
@@ -129,9 +134,9 @@ export async function createSftpArchive(
     keep: number,
     sftpConfig: SftpClient.ConnectOptions,
 ) {
+    const partialPath = path.posix.join(destination, archive.fullPartialFilename);
     const archivePath = path.posix.join(destination, archive.fullFilename);
     const checksumPath = path.posix.join(destination, archive.fullChecksumFilename);
-    const partialPath = path.posix.join(destination, archive.fullPartialFilename);
 
     const sftp = new SftpClient();
 
@@ -146,12 +151,14 @@ export async function createSftpArchive(
             );
         }
 
-        if (await sftp.exists(partialPath)) {
-            throw new Error(
-                msg.get("err.destinationExists", {
-                    path: partialPath,
-                }),
-            );
+        for await (const location of [partialPath, archivePath, checksumPath]) {
+            if (await sftp.exists(location)) {
+                throw new Error(
+                    msg.get("err.destinationExists", {
+                        path: location,
+                    }),
+                );
+            }
         }
 
         try {
@@ -181,13 +188,6 @@ export async function createSftpArchive(
                 logWarning(
                     msg.get("warn.deleteFailed", {
                         path: partialPath,
-                    }),
-                );
-            });
-            await sftp.delete(checksumPath).catch(() => {
-                logWarning(
-                    msg.get("warn.deleteFailed", {
-                        path: checksumPath,
                     }),
                 );
             });
