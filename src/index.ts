@@ -82,8 +82,8 @@ program.action(async () => {
         msg.get("info.creatingArchive", {
             path:
                 opts.target === "local"
-                    ? path.join(opts.dst, archiveDescription.fullFilename)
-                    : path.posix.join(opts.dst, archiveDescription.fullFilename),
+                    ? path.join(opts.dst, archiveDescription.fullPartialFilename)
+                    : path.posix.join(opts.dst, archiveDescription.fullPartialFilename),
         }),
     );
 

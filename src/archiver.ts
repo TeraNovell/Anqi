@@ -1,5 +1,5 @@
 import { createWriteStream, statSync } from "node:fs";
-import { readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
 import constants from "./constants.ts";
@@ -25,11 +25,12 @@ export async function createLocalArchive(
 
     const archivePath = path.join(destination, archive.fullFilename);
     const checksumPath = path.join(destination, archive.fullChecksumFilename);
+    const partialPath = path.join(destination, archive.fullPartialFilename);
 
     try {
         const archiveData = await writeArchive(
             sources,
-            createWriteStream(archivePath),
+            createWriteStream(partialPath),
             archive.compression,
             (entry) => {
                 if (path.dirname(entry.path) !== path.resolve(destination)) return false;
@@ -39,19 +40,22 @@ export async function createLocalArchive(
                 const name = path.basename(entry.path);
                 return (
                     isArchiveFile(name, archive.prefix, archive.extension) ||
-                    isArchiveFile(name, archive.prefix, archive.checksumExtension)
+                    isArchiveFile(name, archive.prefix, archive.checksumExtension) ||
+                    isArchiveFile(name, archive.prefix, archive.partialExtension)
                 );
             },
         );
-        await writeFile(checksumPath, `${archiveData.hash}  ${archive.fullFilename}\n`);
 
-        if ((await stat(archivePath))?.size !== archiveData.size) {
+        if ((await stat(partialPath))?.size !== archiveData.size) {
             throw new Error(
                 msg.get("err.sizeMismatch", {
-                    path: archivePath,
+                    path: partialPath,
                 }),
             );
         }
+
+        await rename(partialPath, archivePath);
+        await writeFile(checksumPath, `${archiveData.hash}  ${archive.fullFilename}\n`);
 
         logSuccess(
             msg.get("success.archiveCreated", {
@@ -62,6 +66,13 @@ export async function createLocalArchive(
 
         if (archiveData.warnings > 0) process.exitCode = constants.exitCodes.incomplete;
     } catch (error) {
+        await unlink(partialPath).catch(() => {
+            logWarning(
+                msg.get("warn.deleteFailed", {
+                    path: partialPath,
+                }),
+            );
+        });
         await unlink(archivePath).catch(() => {
             logWarning(
                 msg.get("warn.deleteFailed", {
@@ -130,6 +141,7 @@ export async function createSftpArchive(
 ) {
     const archivePath = path.posix.join(destination, archive.fullFilename);
     const checksumPath = path.posix.join(destination, archive.fullChecksumFilename);
+    const partialPath = path.posix.join(destination, archive.fullPartialFilename);
 
     const sftp = new SftpClient();
 
@@ -145,16 +157,17 @@ export async function createSftpArchive(
         }
 
         try {
-            const archiveData = await writeArchive(sources, sftp.createWriteStream(archivePath), archive.compression);
+            const archiveData = await writeArchive(sources, sftp.createWriteStream(partialPath), archive.compression);
 
-            if ((await sftp.stat(archivePath))?.size !== archiveData.size) {
+            if ((await sftp.stat(partialPath))?.size !== archiveData.size) {
                 throw new Error(
                     msg.get("err.sizeMismatch", {
-                        path: archivePath,
+                        path: partialPath,
                     }),
                 );
             }
 
+            await sftp.rename(partialPath, archivePath);
             await sftp.put(Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`), checksumPath);
 
             logSuccess(
@@ -166,8 +179,27 @@ export async function createSftpArchive(
 
             if (archiveData.warnings > 0) process.exitCode = constants.exitCodes.incomplete;
         } catch (error) {
-            await sftp.delete(archivePath).catch(() => {});
-            await sftp.delete(checksumPath).catch(() => {});
+            await sftp.delete(partialPath).catch(() => {
+                logWarning(
+                    msg.get("warn.deleteFailed", {
+                        path: partialPath,
+                    }),
+                );
+            });
+            await sftp.delete(archivePath).catch(() => {
+                logWarning(
+                    msg.get("warn.deleteFailed", {
+                        path: archivePath,
+                    }),
+                );
+            });
+            await sftp.delete(checksumPath).catch(() => {
+                logWarning(
+                    msg.get("warn.deleteFailed", {
+                        path: checksumPath,
+                    }),
+                );
+            });
             throw error;
         }
 

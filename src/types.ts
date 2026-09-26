@@ -24,17 +24,22 @@ export interface CompressionDescription {
 
 export class ArchiveDescription {
     public readonly prefix: string;
-    public readonly extension: string;
+    public readonly filename: string;
+
     public readonly compression?: CompressionDescription;
 
-    public readonly filename: string;
+    public readonly extension: string;
     public readonly fullFilename: string;
+
+    public readonly partialExtension: string;
+    public readonly fullPartialFilename: string;
 
     public readonly checksumExtension: string;
     public readonly fullChecksumFilename: string;
 
     constructor(prefix: string, compression?: CompressionDescription) {
         this.prefix = path.basename(prefix).replaceAll("\\", "");
+        this.filename = `${this.prefix}-${dayjs().format("YYYYMMDD-HHmmss")}`;
 
         switch (compression?.compressor) {
             case "zstd":
@@ -49,13 +54,15 @@ export class ArchiveDescription {
                 this.extension = ".tar";
                 break;
         }
-
         this.compression = compression;
-        this.filename = `${this.prefix}-${dayjs().format("YYYYMMDD-HHmmss")}`;
+
         this.fullFilename = this.filename + this.extension;
 
+        this.partialExtension = ".part";
+        this.fullPartialFilename = this.filename + this.partialExtension;
+
         this.checksumExtension = `${this.extension}.sha256`;
-        this.fullChecksumFilename = this.fullFilename + this.checksumExtension;
+        this.fullChecksumFilename = this.filename + this.checksumExtension;
     }
 }
 
