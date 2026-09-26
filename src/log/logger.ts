@@ -44,7 +44,12 @@ export function formatKnownError(error: unknown, params: MessageParams = {}) {
     if (error instanceof Error && "code" in error) {
         if (error.code === "ENOENT") {
             return msg.get("warn.unableToAccessNoneExistPath", params);
-        } else if (error.code === "EACCES") {
+        } else if (
+            error.code === "EACCES" ||
+            error.code === "EPERM" ||
+            error.code === "EBUSY" ||
+            error.code === "ELOOP"
+        ) {
             return msg.get("warn.unableToAccessPath", params);
         }
     }

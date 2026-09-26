@@ -12,12 +12,15 @@ const globOptions = {
     magicalBraces: true,
 } as MinimatchOptions;
 
-export async function* walk(sources: readonly string[]): AsyncGenerator<WalkEntry> {
+export async function* walk(
+    sources: readonly string[],
+    exclude?: (entry: WalkEntry) => boolean,
+): AsyncGenerator<WalkEntry> {
     const seenPaths = new Set<string>();
 
     for (const source of sources) {
         if (new Minimatch(toPosixPath(source), globOptions).hasMagic()) {
-            yield* resolveGlob(source, seenPaths);
+            yield* resolveGlob(source, seenPaths, exclude);
             continue;
         }
 
@@ -49,7 +52,7 @@ export async function* walk(sources: readonly string[]): AsyncGenerator<WalkEntr
         };
 
         if (stats.isDirectory()) {
-            yield* resolveDirectory(absPath, seenPaths);
+            yield* resolveDirectory(absPath, seenPaths, exclude);
         }
     }
 }
@@ -59,7 +62,11 @@ export async function* walk(sources: readonly string[]): AsyncGenerator<WalkEntr
 // full control over symlinks, including broken symlinks, without following symlinked directories and
 // potentially archiving the same contents twice.
 
-async function* resolveGlob(pattern: string, seenPaths: Set<string>): AsyncGenerator<WalkEntry> {
+async function* resolveGlob(
+    pattern: string,
+    seenPaths: Set<string>,
+    exclude?: (entry: WalkEntry) => boolean,
+): AsyncGenerator<WalkEntry> {
     pattern = toPosixPath(path.resolve(pattern));
 
     const matcher = new Minimatch(pattern, globOptions);
@@ -70,6 +77,7 @@ async function* resolveGlob(pattern: string, seenPaths: Set<string>): AsyncGener
     yield* resolveDirectory(
         base,
         seenPaths,
+        exclude,
         (entry) => matcher.match(toPosixPath(entry.path)),
         (entry) => partialMatcher.match(toPosixPath(entry.path)),
     );
@@ -78,6 +86,7 @@ async function* resolveGlob(pattern: string, seenPaths: Set<string>): AsyncGener
 async function* resolveDirectory(
     source: string,
     seenPaths: Set<string>,
+    exclude?: (entry: WalkEntry) => boolean,
     filter?: (entry: WalkEntry) => boolean,
     descend?: (entry: WalkEntry) => boolean,
 ): AsyncGenerator<WalkEntry> {
@@ -115,17 +124,22 @@ async function* resolveDirectory(
         for (const dirent of contents) {
             const absPath = path.resolve(dirent.parentPath, dirent.name);
 
-            if (seenPaths.has(absPath)) continue;
-            seenPaths.add(absPath);
-
             const entry: WalkEntry = {
                 path: absPath,
                 dirent,
             };
 
+            if (exclude?.(entry)) {
+                logDebug(`Excluding: ${absPath}`);
+                continue;
+            }
+
             if (dirent.isDirectory() && (!descend || descend(entry))) directories.push(absPath);
 
             if (filter && !filter(entry)) continue;
+
+            if (seenPaths.has(absPath)) continue;
+            seenPaths.add(absPath);
 
             yield entry;
         }

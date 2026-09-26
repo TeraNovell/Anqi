@@ -54,7 +54,7 @@ export function splitGlob(pattern: string, matcher = new Minimatch(pattern)) {
     };
 }
 
-function isArchiveFile(name: string, prefix: string, extension: string) {
+export function isArchiveFile(name: string, prefix: string, extension: string) {
     const expectedPrefix = `${prefix}-`;
 
     if (!name.startsWith(expectedPrefix) || !name.endsWith(extension)) return false;

@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { lstat, readlink } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { lstat, open, readlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { PassThrough, Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -11,7 +11,12 @@ import { Counters, type CompressionDescription } from "./types.ts";
 import { createHashingTransform, toPosixPath } from "./utils.ts";
 import { walk, type WalkEntry } from "./walker.ts";
 
-export async function writeArchive(sources: string[], destination: Writable, compression?: CompressionDescription) {
+export async function writeArchive(
+    sources: string[],
+    destination: Writable,
+    compression?: CompressionDescription,
+    exclude?: (entry: WalkEntry) => boolean,
+) {
     const counters = new Counters();
 
     return countersStorage.run(counters, async () => {
@@ -41,10 +46,9 @@ export async function writeArchive(sources: string[], destination: Writable, com
 
             // Always perform a fresh lstat immediately before writing a tar entry instead of reusing
             // the stats or dirent collected during the crawl. This ensures that the tar header reflects
-            // the current filesystem state. A stale size could cause the streamed data to differ from
-            // the declared header size, which tar-stream treats as a fatal error and aborts the archive.
+            // the current filesystem state. For regular files the stats come from the opened file handle.
 
-            for await (const entry of walk(sources)) {
+            for await (const entry of walk(sources, exclude)) {
                 try {
                     const name = getName(entry.path);
                     const kind = entry.dirent ?? entry.stats;
@@ -61,40 +65,49 @@ export async function writeArchive(sources: string[], destination: Writable, com
 
                         entryCount++;
                     } else if (kind?.isFile()) {
-                        const stats = await lstat(entry.path);
+                        const handle = await open(entry.path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
 
-                        if (
-                            stats.nlink > 1 &&
-                            (process.platform !== "win32" || (stats.dev !== 0 && stats.ino !== -1))
-                        ) {
-                            const inode = `${stats.dev}:${stats.ino}`;
-                            const hardlinkTarget = seenHardlinks.get(inode);
+                        try {
+                            const stats = await handle.stat({ bigint: true });
 
-                            if (hardlinkTarget) {
-                                tar.entry({
-                                    name,
-                                    type: "link",
-                                    mode: stats.mode,
-                                    mtime: stats.mtime,
-                                    linkname: hardlinkTarget,
-                                });
-                                entryCount++;
-                                continue;
+                            const size = Number(stats.size);
+                            const mode = Number(stats.mode);
+
+                            if (
+                                stats.nlink > 1 &&
+                                (process.platform !== "win32" || (stats.dev !== 0n && stats.ino !== 0n))
+                            ) {
+                                const inode = `${stats.dev}:${stats.ino}`;
+                                const hardlinkTarget = seenHardlinks.get(inode);
+
+                                if (hardlinkTarget) {
+                                    tar.entry({
+                                        name,
+                                        type: "link",
+                                        mode,
+                                        mtime: stats.mtime,
+                                        linkname: hardlinkTarget,
+                                    });
+                                    entryCount++;
+                                    continue;
+                                }
+
+                                seenHardlinks.set(inode, name);
                             }
 
-                            seenHardlinks.set(inode, name);
+                            await pipeFile(
+                                Readable.from(readFixedSize(handle, entry.path, size)),
+                                tar.entry({
+                                    name,
+                                    type: "file",
+                                    size,
+                                    mode,
+                                    mtime: stats.mtime,
+                                }) as unknown as Writable,
+                            );
+                        } finally {
+                            await handle.close();
                         }
-
-                        await pipeFile(
-                            createReadStream(entry.path),
-                            tar.entry({
-                                name,
-                                type: "file",
-                                size: stats.size,
-                                mode: stats.mode,
-                                mtime: stats.mtime,
-                            }) as unknown as Writable,
-                        );
 
                         entryCount++;
                         fileCount++;
@@ -209,6 +222,36 @@ export async function writeArchive(sources: string[], destination: Writable, com
 // target system during extraction.
 function getName(entryPath: string) {
     return path.posix.relative("/", toPosixPath(entryPath));
+}
+
+// The tar header declares the exact size of the file, so exactly that many bytes must follow.
+// If the file grows while archiving, the additional data is ignored. If the file shrinks or
+// cannot be read completely, the remaining bytes are padded with zeros to preserve the declared size.
+async function* readFixedSize(handle: FileHandle, entryPath: string, size: number) {
+    const chunkSize = 64 * 1024;
+
+    let read = 0;
+
+    try {
+        if (size > 0) {
+            for await (const chunk of handle.createReadStream({ start: 0, end: size - 1, autoClose: false })) {
+                read += chunk.length;
+                yield chunk;
+            }
+        }
+    } catch {
+        // Handled below by padding the missing part.
+    }
+
+    if (read < size) {
+        logWarning(msg.get("err.fileChangedWhileArchiving", { path: entryPath }));
+
+        while (read < size) {
+            const length = Math.min(chunkSize, size - read);
+            yield Buffer.alloc(length);
+            read += length;
+        }
+    }
 }
 
 // Using pipe is faster than invoking a pipeline for every individual file added to the stream, because pipeline

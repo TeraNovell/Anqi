@@ -3,15 +3,10 @@ import { readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
 import constants from "./constants.ts";
-import {
-    formatBytes,
-    formatKnownError,
-    logSuccess,
-    logWarning,
-} from "./log/logger.ts";
+import { formatBytes, formatKnownError, logSuccess, logWarning } from "./log/logger.ts";
 import msg, { type MessageParams } from "./log/messages.ts";
 import { ArchiveDescription } from "./types.ts";
-import { findOldArchives } from "./utils.ts";
+import { findOldArchives, isArchiveFile } from "./utils.ts";
 import { writeArchive } from "./writer.ts";
 
 export async function createLocalArchive(
@@ -29,18 +24,26 @@ export async function createLocalArchive(
     }
 
     const archivePath = path.join(destination, archive.fullFilename);
-    const hashPath = `${archivePath}.sha256`;
+    const checksumPath = path.join(destination, archive.fullChecksumFilename);
 
     try {
         const archiveData = await writeArchive(
             sources,
             createWriteStream(archivePath),
             archive.compression,
+            (entry) => {
+                if (path.dirname(entry.path) !== path.resolve(destination)) return false;
+
+                // Exclude the created archive files to prevent them from being included in backups,
+                // which could otherwise cause duplicates or recursive backup loops.
+                const name = path.basename(entry.path);
+                return (
+                    isArchiveFile(name, archive.prefix, archive.extension) ||
+                    isArchiveFile(name, archive.prefix, archive.checksumExtension)
+                );
+            },
         );
-        await writeFile(
-            hashPath,
-            `${archiveData.hash}  ${archive.fullFilename}\n`,
-        );
+        await writeFile(checksumPath, `${archiveData.hash}  ${archive.fullFilename}\n`);
 
         if ((await stat(archivePath))?.size !== archiveData.size) {
             throw new Error(
@@ -57,8 +60,7 @@ export async function createLocalArchive(
             }),
         );
 
-        if (archiveData.warnings > 0)
-            process.exitCode = constants.exitCodes.incomplete;
+        if (archiveData.warnings > 0) process.exitCode = constants.exitCodes.incomplete;
     } catch (error) {
         await unlink(archivePath).catch(() => {
             logWarning(
@@ -67,10 +69,10 @@ export async function createLocalArchive(
                 }),
             );
         });
-        await unlink(hashPath).catch(() => {
+        await unlink(checksumPath).catch(() => {
             logWarning(
                 msg.get("warn.deleteFailed", {
-                    path: hashPath,
+                    path: checksumPath,
                 }),
             );
         });
@@ -83,14 +85,9 @@ export async function createLocalArchive(
         ?.filter((x) => x.isFile())
         ?.map((x) => x.name);
 
-    for (const name of findOldArchives(
-        fileNames,
-        archive.prefix,
-        archive.extension,
-        keep,
-    )) {
+    for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
         const filePath = path.join(destination, name);
-        const hashFilePath = `${filePath}.sha256`;
+        const checksumFilePath = filePath + archive.checksumExtension;
 
         let failed = false;
 
@@ -101,23 +98,17 @@ export async function createLocalArchive(
                 const params: MessageParams = {
                     path: filePath,
                 };
-                logWarning(
-                    formatKnownError(error, params) ??
-                        msg.get("warn.deleteFailed", params),
-                );
+                logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
             });
 
-        if (fileNames.includes(`${name}.sha256`))
-            await unlink(hashFilePath).catch((error) => {
+        if (fileNames.includes(name + archive.checksumExtension))
+            await unlink(checksumFilePath).catch((error) => {
                 failed = true;
 
                 const params: MessageParams = {
-                    path: hashFilePath,
+                    path: checksumFilePath,
                 };
-                logWarning(
-                    formatKnownError(error, params) ??
-                        msg.get("warn.deleteFailed", params),
-                );
+                logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
             });
 
         if (failed) continue;
@@ -138,7 +129,7 @@ export async function createSftpArchive(
     sftpConfig: SftpClient.ConnectOptions,
 ) {
     const archivePath = path.posix.join(destination, archive.fullFilename);
-    const hashPath = `${archivePath}.sha256`;
+    const checksumPath = path.posix.join(destination, archive.fullChecksumFilename);
 
     const sftp = new SftpClient();
 
@@ -154,11 +145,7 @@ export async function createSftpArchive(
         }
 
         try {
-            const archiveData = await writeArchive(
-                sources,
-                sftp.createWriteStream(archivePath),
-                archive.compression,
-            );
+            const archiveData = await writeArchive(sources, sftp.createWriteStream(archivePath), archive.compression);
 
             if ((await sftp.stat(archivePath))?.size !== archiveData.size) {
                 throw new Error(
@@ -168,10 +155,7 @@ export async function createSftpArchive(
                 );
             }
 
-            await sftp.put(
-                Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`),
-                hashPath,
-            );
+            await sftp.put(Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`), checksumPath);
 
             logSuccess(
                 msg.get("success.archiveCreated", {
@@ -180,28 +164,20 @@ export async function createSftpArchive(
                 }),
             );
 
-            if (archiveData.warnings > 0)
-                process.exitCode = constants.exitCodes.incomplete;
+            if (archiveData.warnings > 0) process.exitCode = constants.exitCodes.incomplete;
         } catch (error) {
             await sftp.delete(archivePath).catch(() => {});
-            await sftp.delete(hashPath).catch(() => {});
+            await sftp.delete(checksumPath).catch(() => {});
             throw error;
         }
 
         if (keep <= 0) return;
 
-        const fileNames = (await sftp.list(destination))
-            ?.filter((x) => x.type === "-")
-            ?.map((x) => x.name);
+        const fileNames = (await sftp.list(destination))?.filter((x) => x.type === "-")?.map((x) => x.name);
 
-        for (const name of findOldArchives(
-            fileNames,
-            archive.prefix,
-            archive.extension,
-            keep,
-        )) {
+        for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
             const filePath = path.posix.join(destination, name);
-            const hashFilePath = `${filePath}.sha256`;
+            const checksumFilePath = filePath + archive.checksumExtension;
 
             let failed = false;
 
@@ -212,23 +188,17 @@ export async function createSftpArchive(
                     const params: MessageParams = {
                         path: filePath,
                     };
-                    logWarning(
-                        formatKnownError(error, params) ??
-                            msg.get("warn.deleteFailed", params),
-                    );
+                    logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
                 });
 
-            if (fileNames.includes(`${name}.sha256`))
-                await sftp.delete(hashFilePath).catch((error) => {
+            if (fileNames.includes(name + archive.checksumExtension))
+                await sftp.delete(checksumFilePath).catch((error) => {
                     failed = true;
 
                     const params: MessageParams = {
-                        path: hashFilePath,
+                        path: checksumFilePath,
                     };
-                    logWarning(
-                        formatKnownError(error, params) ??
-                            msg.get("warn.deleteFailed", params),
-                    );
+                    logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
                 });
 
             if (failed) continue;
