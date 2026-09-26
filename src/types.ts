@@ -35,7 +35,7 @@ export class ArchiveDescription {
 
         switch (compression?.compressor) {
             case "zstd":
-                this.extension = ".tar.zstd";
+                this.extension = ".tar.zst";
                 break;
 
             case "gzip":

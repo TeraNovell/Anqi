@@ -1,16 +1,22 @@
-import { walkStream, type ErrorFilterFunction, type Entry as FsWalkEntry } from "@nodelib/fs.walk";
-import fg, { type Options as GlobOptions } from "fast-glob";
-import { Stats } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { Minimatch, type MinimatchOptions } from "minimatch";
+import { Dirent, Stats } from "node:fs";
+import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
-import { formatKnownError, logWarning } from "./log/logger.ts";
-import { toPosixPath } from "./utils.ts";
+import { formatKnownError, logDebug, logWarning } from "./log/logger.ts";
+import { splitGlob, toPosixPath } from "./utils.ts";
+
+const globOptions = {
+    dot: true,
+    nonegate: true,
+    nocomment: true,
+    magicalBraces: true,
+} as MinimatchOptions;
 
 export async function* walk(sources: readonly string[]): AsyncGenerator<WalkEntry> {
     const seenPaths = new Set<string>();
 
     for (const source of sources) {
-        if (fg.isDynamicPattern(source)) {
+        if (new Minimatch(toPosixPath(source), globOptions).hasMagic()) {
             yield* resolveGlob(source, seenPaths);
             continue;
         }
@@ -48,73 +54,86 @@ export async function* walk(sources: readonly string[]): AsyncGenerator<WalkEntr
     }
 }
 
-// Node's own fs.glob has no option to match dotfiles, so an external library is needed. fast-glob is the only
-// one that also handles symlinks correctly for a backup. With followSymbolicLinks set to false it keeps broken
-// symlinks and doesn't silently drop them while also not following symlinked directories which would archive their
-// contents twice, once under the symlink and once under its target.
-
-const globOptions = {
-    absolute: true,
-    dot: true,
-    onlyFiles: false,
-    followSymbolicLinks: false,
-    objectMode: true,
-    unique: true,
-    suppressErrors: true,
-} as GlobOptions;
+// Node's built-in fs.glob does not provide the matching behavior needed here, so Minimatch is used
+// to handle pattern matching independently of filesystem traversal. This allows the walker to retain
+// full control over symlinks, including broken symlinks, without following symlinked directories and
+// potentially archiving the same contents twice.
 
 async function* resolveGlob(pattern: string, seenPaths: Set<string>): AsyncGenerator<WalkEntry> {
-    const stream = fg.stream(toPosixPath(pattern), globOptions) as AsyncIterable<fg.Entry>;
+    pattern = toPosixPath(path.resolve(pattern));
 
-    let absPath = "";
+    const matcher = new Minimatch(pattern, globOptions);
+    const { base } = splitGlob(pattern, matcher);
 
-    for await (const entry of stream) {
-        absPath = path.resolve(entry.path);
+    const partialMatcher = new Minimatch(pattern, { ...globOptions, partial: true });
 
-        if (seenPaths.has(absPath)) continue;
-        seenPaths.add(absPath);
-
-        yield { path: absPath, dirent: entry.dirent };
-    }
+    yield* resolveDirectory(
+        base,
+        seenPaths,
+        (entry) => matcher.match(toPosixPath(entry.path)),
+        (entry) => partialMatcher.match(toPosixPath(entry.path)),
+    );
 }
 
-async function* resolveDirectory(dirPath: string, seen: Set<string>): AsyncGenerator<WalkEntry> {
-    const errorFilter: ErrorFilterFunction = (error) => {
-        const message = formatKnownError(error, {
-            path: error.path ?? dirPath,
-        });
+async function* resolveDirectory(
+    source: string,
+    seenPaths: Set<string>,
+    filter?: (entry: WalkEntry) => boolean,
+    descend?: (entry: WalkEntry) => boolean,
+): AsyncGenerator<WalkEntry> {
+    let directories = [source];
 
-        if (message) {
-            logWarning(message);
-            return true;
+    while (directories.length > 0) {
+        const directory = directories.pop();
+        if (!directory) continue;
+
+        logDebug(`Walking: ${directory}`);
+
+        let contents: Dirent<string>[] = [];
+
+        try {
+            contents = await readdir(directory, { withFileTypes: true });
+        } catch (error) {
+            let location = "";
+
+            if (error instanceof Error && "path" in error && typeof error.path === "string") {
+                location = error.path;
+            }
+
+            const message = formatKnownError(error, {
+                path: location ?? directory,
+            });
+
+            if (message) {
+                logWarning(message);
+                continue;
+            }
+
+            throw error instanceof Error ? error : new Error(String(error));
         }
 
-        throw error instanceof Error ? error : new Error(String(error));
-    };
+        for (const dirent of contents) {
+            const absPath = path.resolve(dirent.parentPath, dirent.name);
 
-    const stream = walkStream(dirPath, {
-        followSymbolicLinks: false,
-        errorFilter,
-    });
+            if (seenPaths.has(absPath)) continue;
+            seenPaths.add(absPath);
 
-    for await (const entry of stream as AsyncIterable<FsWalkEntry>) {
-        const absPath = path.resolve(entry.path);
+            const entry: WalkEntry = {
+                path: absPath,
+                dirent,
+            };
 
-        if (seen.has(absPath)) continue;
-        seen.add(absPath);
+            if (dirent.isDirectory() && (!descend || descend(entry))) directories.push(absPath);
 
-        yield { path: absPath, dirent: entry.dirent };
+            if (filter && !filter(entry)) continue;
+
+            yield entry;
+        }
     }
 }
 
 export interface WalkEntry {
     path: string;
     stats?: Stats;
-    // Instead of importing fast-glob's or fs.walk's own Dirent type, this only specifies the methods actually used here.
-    // fast-glob depends on an older fs.walk version, and the two Dirent types aren't assignable to each other.
-    dirent?: {
-        isDirectory(): boolean;
-        isSymbolicLink(): boolean;
-        isFile(): boolean;
-    };
+    dirent?: Dirent;
 }
