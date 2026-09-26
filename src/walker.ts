@@ -69,10 +69,22 @@ async function* resolveGlob(
 ): AsyncGenerator<WalkEntry> {
     pattern = toPosixPath(path.resolve(pattern));
 
-    const entryMatcher = new Minimatch(pattern, globOptions);
-    const contentMatcher = new Minimatch(`${pattern}/**`, globOptions);
-    const descendMatcher = new Minimatch(pattern, { ...globOptions, partial: true });
+    // If the pattern matches a directory, everything inside it should be backed up too, just like `--src <dir>` would.
+    // For example the pattern "docs/*" matches the directory "docs/sub", so "docs/sub/file.txt" is included as well.
+    const contentPattern = `${pattern}/**`;
 
+    // Does the path match the pattern itself? (e.g. "docs/sub" for "docs/*")
+    const entryMatcher = new Minimatch(pattern, globOptions);
+
+    // Is the path inside something that matched? (e.g. "docs/sub/file.txt" for "docs/*")
+    const contentMatcher = new Minimatch(contentPattern, globOptions);
+
+    // Should the walker look into this directory, i.e. how deep does it need to go? It uses "<pattern>/**" so it also
+    // walks into subdirectories of a match, not only the match itself.
+    const descendMatcher = new Minimatch(contentPattern, { ...globOptions, partial: true });
+
+    // The walk starts at the fixed part of the pattern before the first wildcard, e.g. "docs" for "docs/*/*.txt".
+    // Nothing outside of it can match, so there is no need to look there.
     const { base } = splitGlob(pattern, entryMatcher);
 
     yield* resolveDirectory(

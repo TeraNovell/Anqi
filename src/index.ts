@@ -20,7 +20,8 @@ program
     .version(packageJson.version, "-v, --version")
     .requiredOption(
         "-s, --src <path>",
-        "Path or glob pattern of a file or directory to back up (repeatable)",
+        "File, directory or glob pattern to back up (repeatable). Directories are always backed up with all of " +
+            "their contents, also when matched by a pattern. Quote patterns so the shell does not expand them",
         (value: string, previous: string[] = []) => {
             return [...previous, value];
         },
