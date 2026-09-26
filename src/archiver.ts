@@ -3,7 +3,7 @@ import { open, readdir, rename, stat, unlink, writeFile } from "node:fs/promises
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
 import constants from "./constants.ts";
-import { formatBytes, formatKnownError, logSuccess, logWarning } from "./log/logger.ts";
+import { formatBytes, formatKnownError, logDebug, logSuccess, logWarning } from "./log/logger.ts";
 import msg, { type MessageParams } from "./log/messages.ts";
 import { ArchiveDescription } from "./types.ts";
 import { findOldArchives, isArchiveFile } from "./utils.ts";
@@ -15,9 +15,9 @@ export async function createLocalArchive(
     archive: ArchiveDescription,
     keep: number,
 ) {
-    const partialPath = path.join(destination, archive.fullPartialFilename);
     const archivePath = path.join(destination, archive.fullFilename);
-    const checksumPath = path.join(destination, archive.fullChecksumFilename);
+    const partialPath = archivePath + constants.fileExtension.partial;
+    const checksumPath = archivePath + constants.fileExtension.checksum;
 
     if (!statSync(destination, { throwIfNoEntry: false })?.isDirectory()) {
         throw new Error(
@@ -27,7 +27,7 @@ export async function createLocalArchive(
         );
     }
 
-    for await (const location of [partialPath, archivePath, checksumPath]) {
+    for await (const location of [archivePath, partialPath, checksumPath]) {
         if (await stat(location).catch(() => null)) {
             throw new Error(
                 msg.get("err.destinationExists", {
@@ -48,8 +48,8 @@ export async function createLocalArchive(
             const name = path.basename(entry.path);
             return (
                 isArchiveFile(name, archive.prefix, archive.extension) ||
-                isArchiveFile(name, archive.prefix, archive.checksumExtension) ||
-                isArchiveFile(name, archive.prefix, archive.partialExtension)
+                isArchiveFile(name, archive.prefix, archive.extension + constants.fileExtension.partial) ||
+                isArchiveFile(name, archive.prefix, archive.extension + constants.fileExtension.checksum)
             );
         });
 
@@ -93,11 +93,12 @@ export async function createLocalArchive(
 
     for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
         const filePath = path.join(destination, name);
-        const checksumFilePath = filePath + archive.checksumExtension;
+        const checksumFilePath = filePath + constants.fileExtension.checksum;
 
         let failed = false;
 
-        if (fileNames.includes(name))
+        if (fileNames.includes(name)) {
+            logDebug(`Deleting: ${filePath}`);
             await unlink(filePath).catch((error) => {
                 failed = true;
 
@@ -106,8 +107,10 @@ export async function createLocalArchive(
                 };
                 logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
             });
+        }
 
-        if (fileNames.includes(name + archive.checksumExtension))
+        if (fileNames.includes(name + constants.fileExtension.checksum)) {
+            logDebug(`Deleting: ${checksumFilePath}`);
             await unlink(checksumFilePath).catch((error) => {
                 failed = true;
 
@@ -116,6 +119,7 @@ export async function createLocalArchive(
                 };
                 logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
             });
+        }
 
         if (failed) continue;
 
@@ -134,9 +138,9 @@ export async function createSftpArchive(
     keep: number,
     sftpConfig: SftpClient.ConnectOptions,
 ) {
-    const partialPath = path.posix.join(destination, archive.fullPartialFilename);
     const archivePath = path.posix.join(destination, archive.fullFilename);
-    const checksumPath = path.posix.join(destination, archive.fullChecksumFilename);
+    const partialPath = archivePath + constants.fileExtension.partial;
+    const checksumPath = archivePath + constants.fileExtension.checksum;
 
     const sftp = new SftpClient();
 
@@ -151,7 +155,7 @@ export async function createSftpArchive(
             );
         }
 
-        for await (const location of [partialPath, archivePath, checksumPath]) {
+        for await (const location of [archivePath, partialPath, checksumPath]) {
             if (await sftp.exists(location)) {
                 throw new Error(
                     msg.get("err.destinationExists", {
@@ -172,7 +176,9 @@ export async function createSftpArchive(
                 );
             }
 
-            await sftp.put(Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`), checksumPath);
+            await sftp.put(Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`), checksumPath, {
+                writeStreamOptions: { flags: "wx" as any },
+            });
             await sftp.rename(partialPath, archivePath);
 
             logSuccess(
@@ -200,11 +206,12 @@ export async function createSftpArchive(
 
         for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
             const filePath = path.posix.join(destination, name);
-            const checksumFilePath = filePath + archive.checksumExtension;
+            const checksumFilePath = filePath + constants.fileExtension.checksum;
 
             let failed = false;
 
-            if (fileNames.includes(name))
+            if (fileNames.includes(name)) {
+                logDebug(`Deleting: ${filePath}`);
                 await sftp.delete(filePath).catch((error) => {
                     failed = true;
 
@@ -213,8 +220,10 @@ export async function createSftpArchive(
                     };
                     logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
                 });
+            }
 
-            if (fileNames.includes(name + archive.checksumExtension))
+            if (fileNames.includes(name + constants.fileExtension.checksum)) {
+                logDebug(`Deleting: ${checksumFilePath}`);
                 await sftp.delete(checksumFilePath).catch((error) => {
                     failed = true;
 
@@ -223,6 +232,7 @@ export async function createSftpArchive(
                     };
                     logWarning(formatKnownError(error, params) ?? msg.get("warn.deleteFailed", params));
                 });
+            }
 
             if (failed) continue;
 

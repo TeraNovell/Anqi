@@ -69,17 +69,18 @@ async function* resolveGlob(
 ): AsyncGenerator<WalkEntry> {
     pattern = toPosixPath(path.resolve(pattern));
 
-    const matcher = new Minimatch(pattern, globOptions);
-    const { base } = splitGlob(pattern, matcher);
+    const entryMatcher = new Minimatch(pattern, globOptions);
+    const contentMatcher = new Minimatch(`${pattern}/**`, globOptions);
+    const descendMatcher = new Minimatch(pattern, { ...globOptions, partial: true });
 
-    const partialMatcher = new Minimatch(pattern, { ...globOptions, partial: true });
+    const { base } = splitGlob(pattern, entryMatcher);
 
     yield* resolveDirectory(
         base,
         seenPaths,
         exclude,
-        (entry) => matcher.match(toPosixPath(entry.path)),
-        (entry) => partialMatcher.match(toPosixPath(entry.path)),
+        (entry) => entryMatcher.match(toPosixPath(entry.path)) || contentMatcher.match(toPosixPath(entry.path)),
+        (entry) => descendMatcher.match(toPosixPath(entry.path)),
     );
 }
 

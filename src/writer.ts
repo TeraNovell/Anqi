@@ -42,12 +42,17 @@ export async function writeArchive(
             let entryCount = 0;
             let fileCount = 0;
 
+            // Directories are written after their contents so that the directory entry's metadata (such as mode,
+            // ownership, and timestamps) is applied after any files or subdirectories beneath it have been created.
+            // Writing directories first could cause their metadata to be modified again while extracting the
+            // contained entries. Directories must be collected across all sources before being written, rather than
+            // processed source by source, so that a directory shared by multiple sources is written only after all
+            // of its contents have been extracted and its metadata can be restored correctly.
             const directories: WalkEntry[] = [];
 
-            // Always perform a fresh lstat immediately before writing a tar entry instead of reusing
-            // the stats or dirent collected during the crawl. This ensures that the tar header reflects
-            // the current filesystem state. For regular files the stats come from the opened file handle.
-
+            // Always perform a fresh lstat immediately before writing a tar entry instead of reusing the stats or
+            // dirent collected during the crawl. This ensures that the tar header reflects the current filesystem
+            // state. For regular files the stats come from the opened file handle.
             for await (const entry of walk(sources, exclude)) {
                 try {
                     const name = getName(entry.path);
@@ -137,10 +142,6 @@ export async function writeArchive(
                 }
             }
 
-            // Directories are written after their contents so that the directory entry's metadata
-            // (such as mode, ownership, and timestamps) is applied after any files or subdirectories
-            // beneath it have been created. Writing directories first could cause their metadata to
-            // be modified again while extracting the contained entries.
             for (const entry of directories) {
                 try {
                     const name = getName(entry.path);
@@ -193,16 +194,16 @@ export async function writeArchive(
     });
 }
 
-// Convert all paths to relative paths. This prevents absolute paths inside the TAR archive from overwriting
-// system files. For example, a /etc/passwd entry in the archive could otherwise overwrite /etc/passwd on the
-// target system during extraction.
+// Convert all paths to relative paths. This prevents absolute paths inside the TAR archive from overwriting system
+// files. For example, a /etc/passwd entry in the archive could otherwise overwrite /etc/passwd on the target system
+// during extraction.
 function getName(entryPath: string) {
     return path.posix.relative("/", toPosixPath(entryPath));
 }
 
-// The tar header declares the exact size of the file, so exactly that many bytes must follow.
-// If the file grows while archiving, the additional data is ignored. If the file shrinks or
-// cannot be read completely, the remaining bytes are padded with zeros to preserve the declared size.
+// The tar header declares the exact size of the file, so exactly that many bytes must follow. If the file grows while
+// archiving, the additional data is ignored. If the file shrinks or cannot be read completely, the remaining bytes
+// are padded with zeros to preserve the declared size.
 async function* readFixedSize(handle: FileHandle, entryPath: string, size: number) {
     const chunkSize = 64 * 1024;
 
