@@ -103,7 +103,7 @@ async function* resolveDirectory(
         try {
             contents = await readdir(directory, { withFileTypes: true });
         } catch (error) {
-            let location = "";
+            let location: string | undefined;
 
             if (error instanceof Error && "path" in error && typeof error.path === "string") {
                 location = error.path;

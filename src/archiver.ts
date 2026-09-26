@@ -1,5 +1,5 @@
-import { createWriteStream, statSync } from "node:fs";
-import { readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { constants as fsConstants, statSync } from "node:fs";
+import { open, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import SftpClient from "ssh2-sftp-client";
 import constants from "./constants.ts";
@@ -27,24 +27,21 @@ export async function createLocalArchive(
     const checksumPath = path.join(destination, archive.fullChecksumFilename);
     const partialPath = path.join(destination, archive.fullPartialFilename);
 
-    try {
-        const archiveData = await writeArchive(
-            sources,
-            createWriteStream(partialPath),
-            archive.compression,
-            (entry) => {
-                if (path.dirname(entry.path) !== path.resolve(destination)) return false;
+    const handle = await open(partialPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL);
 
-                // Exclude the created archive files to prevent them from being included in backups,
-                // which could otherwise cause duplicates or recursive backup loops.
-                const name = path.basename(entry.path);
-                return (
-                    isArchiveFile(name, archive.prefix, archive.extension) ||
-                    isArchiveFile(name, archive.prefix, archive.checksumExtension) ||
-                    isArchiveFile(name, archive.prefix, archive.partialExtension)
-                );
-            },
-        );
+    try {
+        const archiveData = await writeArchive(sources, handle.createWriteStream(), archive.compression, (entry) => {
+            if (path.dirname(entry.path) !== path.resolve(destination)) return false;
+
+            // Exclude the created archive files to prevent them from being included in backups,
+            // which could otherwise cause duplicates or recursive backup loops.
+            const name = path.basename(entry.path);
+            return (
+                isArchiveFile(name, archive.prefix, archive.extension) ||
+                isArchiveFile(name, archive.prefix, archive.checksumExtension) ||
+                isArchiveFile(name, archive.prefix, archive.partialExtension)
+            );
+        });
 
         if ((await stat(partialPath))?.size !== archiveData.size) {
             throw new Error(
@@ -54,8 +51,8 @@ export async function createLocalArchive(
             );
         }
 
-        await rename(partialPath, archivePath);
         await writeFile(checksumPath, `${archiveData.hash}  ${archive.fullFilename}\n`);
+        await rename(partialPath, archivePath);
 
         logSuccess(
             msg.get("success.archiveCreated", {
@@ -70,13 +67,6 @@ export async function createLocalArchive(
             logWarning(
                 msg.get("warn.deleteFailed", {
                     path: partialPath,
-                }),
-            );
-        });
-        await unlink(archivePath).catch(() => {
-            logWarning(
-                msg.get("warn.deleteFailed", {
-                    path: archivePath,
                 }),
             );
         });
@@ -156,6 +146,14 @@ export async function createSftpArchive(
             );
         }
 
+        if (await sftp.exists(partialPath)) {
+            throw new Error(
+                msg.get("err.destinationExists", {
+                    path: partialPath,
+                }),
+            );
+        }
+
         try {
             const archiveData = await writeArchive(sources, sftp.createWriteStream(partialPath), archive.compression);
 
@@ -167,8 +165,8 @@ export async function createSftpArchive(
                 );
             }
 
-            await sftp.rename(partialPath, archivePath);
             await sftp.put(Buffer.from(`${archiveData.hash}  ${archive.fullFilename}\n`), checksumPath);
+            await sftp.rename(partialPath, archivePath);
 
             logSuccess(
                 msg.get("success.archiveCreated", {
@@ -183,13 +181,6 @@ export async function createSftpArchive(
                 logWarning(
                     msg.get("warn.deleteFailed", {
                         path: partialPath,
-                    }),
-                );
-            });
-            await sftp.delete(archivePath).catch(() => {
-                logWarning(
-                    msg.get("warn.deleteFailed", {
-                        path: archivePath,
                     }),
                 );
             });

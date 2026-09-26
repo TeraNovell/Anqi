@@ -124,18 +124,6 @@ export async function writeArchive(
                         );
                     }
                 } catch (error) {
-                    // tar-stream reports this as a plain Error with no .code, so it can only be recognized by its message.
-                    // Once one entry's declared size doesn't match what was actually streamed, the whole tar stream is
-                    // corrupted from that point on, so this still has to abort the archive, just with a clearer message
-                    // than tar-stream's own error.
-                    if (error instanceof Error && error.message.toLowerCase() === "size mismatch") {
-                        throw new Error(
-                            msg.get("err.fileChangedWhileArchiving", {
-                                path: entry.path,
-                            }),
-                        );
-                    }
-
                     const message = formatKnownError(error, {
                         path: entry.path,
                     });
@@ -169,18 +157,6 @@ export async function writeArchive(
 
                     logDebug(`Adding directory: ${entry.path}`);
                 } catch (error) {
-                    // tar-stream reports this as a plain Error with no .code, so it can only be recognized by its message.
-                    // Once one entry's declared size doesn't match what was actually streamed, the whole tar stream is
-                    // corrupted from that point on, so this still has to abort the archive, just with a clearer message
-                    // than tar-stream's own error.
-                    if (error instanceof Error && error.message.toLowerCase() === "size mismatch") {
-                        throw new Error(
-                            msg.get("err.fileChangedWhileArchiving", {
-                                path: entry.path,
-                            }),
-                        );
-                    }
-
                     const message = formatKnownError(error, {
                         path: entry.path,
                     });
@@ -244,7 +220,7 @@ async function* readFixedSize(handle: FileHandle, entryPath: string, size: numbe
     }
 
     if (read < size) {
-        logWarning(msg.get("err.fileChangedWhileArchiving", { path: entryPath }));
+        logWarning(msg.get("warn.fileChangedWhileArchiving", { path: entryPath }));
 
         while (read < size) {
             const length = Math.min(chunkSize, size - read);
