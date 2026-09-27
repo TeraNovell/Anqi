@@ -14,12 +14,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:24.0.0":
-  version: 24.0.0
-  resolution: "@types/node@npm:24.0.0"
+"@types/node@npm:26.4.0":
+  version: 26.4.0
+  resolution: "@types/node@npm:26.4.0"
   dependencies:
-    undici-types: "npm:~7.8.0"
-  checksum: 10c0/075f3129aa88932a0b4c3c9c28486f93a8d295151138b1fdd590cbbb59ec92d59b66201f99a0f061a7c8955a09d06ecc3fa070ed3c438a521a9890d1a3460958
+    undici-types: "npm:~8.3.0"
+  checksum: 10c0/e6fc94ea3b58fb8040b38c465dec1c53c1fd9d2c092c81f699d28799726baf59f12e1600318e79e8e6f985bb919dab6ae820180b942b8e38c51acaad63e8aada
   languageName: node
   linkType: hard
 
@@ -61,7 +61,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "anqi@workspace:."
   dependencies:
-    "@types/node": "npm:24.0.0"
+    "@types/node": "npm:26.4.0"
     "@types/ssh2-sftp-client": "npm:9.0.6"
     commander: "npm:15.0.0"
     dayjs: "npm:1.11.21"
@@ -563,10 +563,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"undici-types@npm:~7.8.0":
-  version: 7.8.0
-  resolution: "undici-types@npm:7.8.0"
-  checksum: 10c0/9d9d246d1dc32f318d46116efe3cfca5a72d4f16828febc1918d94e58f6ffcf39c158aa28bf5b4fc52f410446bc7858f35151367bd7a49f21746cab6497b709b
+"undici-types@npm:~8.3.0":
+  version: 8.3.0
+  resolution: "undici-types@npm:8.3.0"
+  checksum: 10c0/c8aa7e2fbebfce519654dafadc0ece59be888d2ccaf180fb4495da875e7b536d2456345c384069c7e6f3e9c9ab7435f074957da306f142343eee86ff8048855a
   languageName: node
   linkType: hard
 

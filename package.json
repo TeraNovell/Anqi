@@ -21,7 +21,7 @@
         "tar-stream": "3.2.1"
     },
     "devDependencies": {
-        "@types/node": "24.0.0",
+        "@types/node": "26.4.0",
         "@types/ssh2-sftp-client": "9.0.6",
         "typescript": "6.0.3"
     }
