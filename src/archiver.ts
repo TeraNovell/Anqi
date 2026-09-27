@@ -87,9 +87,9 @@ export async function createLocalArchive(
 
     if (keep <= 0) return;
 
-    const fileNames = (await readdir(destination, { withFileTypes: true }))
-        ?.filter((x) => x.isFile())
-        ?.map((x) => x.name);
+    const fileNames = new Set(
+        (await readdir(destination, { withFileTypes: true })).filter((x) => x.isFile()).map((x) => x.name),
+    );
 
     for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
         const filePath = path.join(destination, name);
@@ -97,7 +97,7 @@ export async function createLocalArchive(
 
         let failed = false;
 
-        if (fileNames.includes(name)) {
+        if (fileNames.has(name)) {
             logDebug(`Deleting: ${filePath}`);
             await unlink(filePath).catch((error) => {
                 failed = true;
@@ -109,7 +109,7 @@ export async function createLocalArchive(
             });
         }
 
-        if (fileNames.includes(name + constants.fileExtension.checksum)) {
+        if (fileNames.has(name + constants.fileExtension.checksum)) {
             logDebug(`Deleting: ${checksumFilePath}`);
             await unlink(checksumFilePath).catch((error) => {
                 failed = true;
@@ -202,7 +202,7 @@ export async function createSftpArchive(
 
         if (keep <= 0) return;
 
-        const fileNames = (await sftp.list(destination))?.filter((x) => x.type === "-")?.map((x) => x.name);
+        const fileNames = new Set((await sftp.list(destination)).filter((x) => x.type === "-")?.map((x) => x.name));
 
         for (const name of findOldArchives(fileNames, archive.prefix, archive.extension, keep)) {
             const filePath = path.posix.join(destination, name);
@@ -210,7 +210,7 @@ export async function createSftpArchive(
 
             let failed = false;
 
-            if (fileNames.includes(name)) {
+            if (fileNames.has(name)) {
                 logDebug(`Deleting: ${filePath}`);
                 await sftp.delete(filePath).catch((error) => {
                     failed = true;
@@ -222,7 +222,7 @@ export async function createSftpArchive(
                 });
             }
 
-            if (fileNames.includes(name + constants.fileExtension.checksum)) {
+            if (fileNames.has(name + constants.fileExtension.checksum)) {
                 logDebug(`Deleting: ${checksumFilePath}`);
                 await sftp.delete(checksumFilePath).catch((error) => {
                     failed = true;

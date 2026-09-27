@@ -8,14 +8,19 @@ import { logDebug } from "./log/logger.ts";
 
 dayjs.extend(customParseFormat);
 
-export function findOldArchives(names: string[], prefix: string, extension: string, keep: number) {
+export function findOldArchives(fileNames: string[] | Set<string>, prefix: string, extension: string, keep: number) {
     if (keep <= 0) return [];
 
-    const archives = names.filter((x) => isArchiveFile(x, prefix, extension)).sort();
+    const archives: string[] = [];
 
-    for (const name of archives) {
-        logDebug(`Found ${name}`);
+    for (const name of fileNames) {
+        if (isArchiveFile(name, prefix, extension)) {
+            archives.push(name);
+            logDebug(`Found ${name}`);
+        }
     }
+
+    archives.sort();
 
     return archives.length <= keep ? [] : archives.slice(0, archives.length - keep);
 }
