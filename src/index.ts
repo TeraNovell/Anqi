@@ -40,15 +40,6 @@ program
         },
         0,
     )
-    .addOption(new Option("-c, --compress <type>", "Compress the backup archive").choices(["zstd", "gzip"]))
-    .option("--compress-level <level>", "Override compression level", (value: string) => {
-        const level = Number.parseInt(value, 10);
-        if (Number.isNaN(level) || level <= 0) {
-            throw new InvalidArgumentError("Compress level must be a positive integer!");
-        }
-
-        return level;
-    })
     .option("--archive-prefix <prefix>", "Prefix for the generated archive filename", "archive")
     .option("--debug", "Enable verbose debug logging", false)
     .optionsGroup("SFTP target options:")
@@ -74,17 +65,14 @@ program.action(async () => {
 
     setDebug(opts.debug);
 
-    const archiveDescription = new ArchiveDescription(
-        opts.archivePrefix,
-        opts.compress ? { compressor: opts.compress, level: opts.compressLevel } : undefined,
-    );
+    const archiveDescription = new ArchiveDescription(opts.archivePrefix);
 
     console.log(
         msg.get("info.creatingArchive", {
             path:
                 opts.target === "local"
-                    ? path.join(opts.dst, archiveDescription.fullFilename)
-                    : path.posix.join(opts.dst, archiveDescription.fullFilename),
+                    ? path.join(opts.dst, archiveDescription.filename)
+                    : path.posix.join(opts.dst, archiveDescription.filename),
         }),
     );
 

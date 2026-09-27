@@ -6,5 +6,7 @@ export default {
     fileExtension: {
         checksum: ".sha256",
         partial: ".part",
+        complete: ".zip",
+        manifest: ".json",
     },
 };

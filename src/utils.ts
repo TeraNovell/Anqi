@@ -4,6 +4,7 @@ import { Minimatch } from "minimatch";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { Transform } from "node:stream";
+import constants from "./constants.ts";
 import { logDebug } from "./log/logger.ts";
 
 dayjs.extend(customParseFormat);
@@ -12,17 +13,28 @@ export function findOldArchives(fileNames: string[] | Set<string>, prefix: strin
     if (keep <= 0) return [];
 
     const archives: string[] = [];
+    const partials: string[] = [];
 
     for (const name of fileNames) {
         if (isArchiveFile(name, prefix, extension)) {
             archives.push(name);
             logDebug(`Found ${name}`);
+        } else if (isArchiveFile(name, prefix, constants.fileExtension.partial)) {
+            partials.push(name);
         }
     }
 
     archives.sort();
 
-    return archives.length <= keep ? [] : archives.slice(0, archives.length - keep);
+    const staleArchives = archives.length <= keep ? [] : archives.slice(0, archives.length - keep);
+
+    // Partial archives are leftovers of interrupted runs. They are removed once they are older than
+    // the most recent complete archive, but they never count towards `keep`, so they can never
+    // evict a complete one.
+    const newestArchive = archives.at(-1);
+    const stalePartialArchives = newestArchive ? partials.filter((name) => name < newestArchive) : [];
+
+    return [...staleArchives, ...stalePartialArchives];
 }
 
 export function createHashingTransform() {

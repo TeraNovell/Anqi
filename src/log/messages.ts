@@ -14,7 +14,7 @@ const messages = {
     "warn.unableToAccessNoneExistPath": "Unable to access {{path}}: it no longer exists. Skipping it.",
     "warn.unableToAccessPath": "Unable to access {{path}}: it cannot be accessed. Skipping it.",
     "warn.unableToProcessUnknownType": "Unable to process {{path}}: unsupported content type. Skipping it.",
-    "warn.fileChangedWhileArchiving": "The file {{path}} changed its size while being streamed!",
+    "warn.fileChangedWhileArchiving": "The file {{path}} changed while being streamed!",
 
     // Error
     "err.sizeMismatch": "Archive creation failed: File size mismatch after creating {{path}}",

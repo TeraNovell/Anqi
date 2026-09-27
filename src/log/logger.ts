@@ -1,9 +1,5 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { styleText } from "node:util";
-import { Counters } from "../types.ts";
 import msg, { type MessageParams } from "./messages.ts";
-
-export const countersStorage = new AsyncLocalStorage<Counters>();
 
 let debug = false;
 export function setDebug(enabled: boolean) {
@@ -16,9 +12,6 @@ export function logSuccess(message: string) {
 }
 
 export function logWarning(message: string, error?: unknown) {
-    const counters = countersStorage.getStore();
-    if (counters) counters.warnings++;
-
     const prefix = process.stderr.isTTY ? `${styleText("yellow", "⚠ WARNING")}` : "WARNING";
     console.warn(`${prefix} ${message}`, ...(error ? [error] : []));
 }
@@ -48,7 +41,8 @@ export function formatKnownError(error: unknown, params: MessageParams = {}) {
             error.code === "EACCES" ||
             error.code === "EPERM" ||
             error.code === "EBUSY" ||
-            error.code === "ELOOP"
+            error.code === "ELOOP" ||
+            error.code === "ENOTDIR"
         ) {
             return msg.get("warn.unableToAccessPath", params);
         }

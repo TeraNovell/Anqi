@@ -1,249 +1,154 @@
-import { constants as fsConstants } from "node:fs";
+import { Uint8ArrayReader, ZipWriter } from "@zip.js/zip.js";
+import { constants as fsConstants, Stats } from "node:fs";
 import { lstat, open, readlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { PassThrough, Readable, Writable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import zlib from "node:zlib";
-import { pack } from "tar-stream";
-import { countersStorage, formatKnownError, logDebug, logWarning } from "./log/logger.ts";
+import { formatKnownError, logDebug, logWarning } from "./log/logger.ts";
 import msg from "./log/messages.ts";
-import { Counters, type CompressionDescription } from "./types.ts";
 import { createHashingTransform, toPosixPath } from "./utils.ts";
 import { walk, type WalkEntry } from "./walker.ts";
 
-export async function writeArchive(
-    sources: string[],
-    destination: Writable,
-    compression?: CompressionDescription,
-    exclude?: (entry: WalkEntry) => boolean,
-) {
-    const counters = new Counters();
+// ToDo: Evaluate Node.js's native ZIP api once it has matured and provides a sufficiently stable api for production
+// use. If it meets the requirements, consider replacing the current ZIP implementation with the native API to reduce
+// external dependencies. https://beta.docs.nodejs.org/zlib#class-zlibzipentry
 
-    return countersStorage.run(counters, async () => {
-        const tar = pack();
-        const { stream: hasher, getHash, getSize } = createHashingTransform();
+export async function writeArchive(sources: string[], destination: Writable, exclude?: (entry: WalkEntry) => boolean) {
+    const corruptedFiles: string[] = [];
 
-        let compressor: zlib.Gzip | zlib.ZstdCompress | null = null;
-        if (compression?.compressor === "zstd") {
-            compressor = zlib.createZstdCompress({
-                params: {
-                    [zlib.constants.ZSTD_c_compressionLevel]: compression.level ?? 7,
-                },
-            });
-        } else if (compression?.compressor === "gzip") {
-            compressor = zlib.createGzip({ level: compression.level ?? 6 });
-        }
+    const { stream: hasher, getHash, getSize } = createHashingTransform();
+    const stream = pipeline(hasher, destination);
 
-        const stream = pipeline(tar, compressor ?? new PassThrough(), hasher, destination);
+    // The pipeline may fail at any time, e.g. when the destination breaks. Prevent an unhandled rejection until it is
+    // awaited below.
+    stream.catch(() => {});
 
-        try {
-            const seenHardlinks = new Map<string, string>();
+    const zip = new ZipWriter(Writable.toWeb(hasher), { useWebWorkers: false });
 
-            let entryCount = 0;
-            let fileCount = 0;
+    try {
+        let entryCount = 0;
+        let fileCount = 0;
 
-            // Directories are written after their contents so that the directory entry's metadata (such as mode,
-            // ownership, and timestamps) is applied after any files or subdirectories beneath it have been created.
-            // Writing directories first could cause their metadata to be modified again while extracting the
-            // contained entries. Directories must be collected across all sources before being written, rather than
-            // processed source by source, so that a directory shared by multiple sources is written only after all
-            // of its contents have been extracted and its metadata can be restored correctly.
-            const directories: WalkEntry[] = [];
+        // Always perform a fresh lstat immediately before writing a zip entry instead of reusing the stats or
+        // dirent collected during the crawl. This ensures that the header reflects the current filesystem state.
+        // For regular files the stats come from the opened file handle.
+        for await (const entry of walk(sources, exclude)) {
+            try {
+                const name = getName(entry.path);
+                const kind = entry.dirent ?? entry.stats;
 
-            // Always perform a fresh lstat immediately before writing a tar entry instead of reusing the stats or
-            // dirent collected during the crawl. This ensures that the tar header reflects the current filesystem
-            // state. For regular files the stats come from the opened file handle.
-            for await (const entry of walk(sources, exclude)) {
-                try {
-                    const name = getName(entry.path);
-                    const kind = entry.dirent ?? entry.stats;
-
-                    if (kind?.isSymbolicLink()) {
-                        const stats = await lstat(entry.path);
-                        tar.entry({
-                            name,
-                            type: "symlink",
-                            mode: stats.mode,
-                            mtime: stats.mtime,
-                            linkname: await readlink(entry.path),
-                        });
-
-                        entryCount++;
-                    } else if (kind?.isFile()) {
-                        const handle = await open(entry.path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-
-                        try {
-                            const stats = await handle.stat({ bigint: true });
-
-                            const size = Number(stats.size);
-                            const mode = Number(stats.mode);
-
-                            if (
-                                stats.nlink > 1 &&
-                                (process.platform !== "win32" || (stats.dev !== 0n && stats.ino !== 0n))
-                            ) {
-                                const inode = `${stats.dev}:${stats.ino}`;
-                                const hardlinkTarget = seenHardlinks.get(inode);
-
-                                if (hardlinkTarget) {
-                                    tar.entry({
-                                        name,
-                                        type: "link",
-                                        mode,
-                                        mtime: stats.mtime,
-                                        linkname: hardlinkTarget,
-                                    });
-                                    entryCount++;
-                                    continue;
-                                }
-
-                                seenHardlinks.set(inode, name);
-                            }
-
-                            await pipeFile(
-                                Readable.from(readFixedSize(handle, entry.path, size)),
-                                tar.entry({
-                                    name,
-                                    type: "file",
-                                    size,
-                                    mode,
-                                    mtime: stats.mtime,
-                                }) as unknown as Writable,
-                            );
-                        } finally {
-                            await handle.close();
-                        }
-
-                        entryCount++;
-                        fileCount++;
-
-                        logDebug(`Adding file: ${entry.path}`);
-                    } else if (kind?.isDirectory()) {
-                        directories.push(entry);
-                        continue;
-                    } else {
-                        logWarning(
-                            msg.get("warn.unableToProcessUnknownType", {
-                                path: entry.path,
-                            }),
-                        );
-                    }
-                } catch (error) {
-                    const message = formatKnownError(error, {
-                        path: entry.path,
-                    });
-
-                    if (message) {
-                        logWarning(message);
-                        continue;
-                    }
-
-                    throw error;
-                }
-            }
-
-            for (const entry of directories) {
-                try {
-                    const name = getName(entry.path);
-
+                if (kind?.isDirectory()) {
                     const stats = await lstat(entry.path);
-                    tar.entry({
-                        name,
-                        type: "directory",
-                        mode: stats.mode,
-                        mtime: stats.mtime,
+                    await zip.add(`${name}/`, undefined, {
+                        directory: true,
+                        unixMode: stats.mode,
+                        lastModDate: stats.mtime,
                     });
 
                     entryCount++;
 
-                    logDebug(`Adding directory: ${entry.path}`);
-                } catch (error) {
-                    const message = formatKnownError(error, {
-                        path: entry.path,
+                    logDebug(`Adding Directory: ${entry.path}`);
+                } else if (kind?.isSymbolicLink()) {
+                    const stats = await lstat(entry.path);
+                    await zip.add(name, new Uint8ArrayReader(Buffer.from(await readlink(entry.path))), {
+                        unixMode: stats.mode,
+                        lastModDate: stats.mtime,
                     });
 
-                    if (message) {
-                        logWarning(message);
-                        continue;
+                    entryCount++;
+                } else if (kind?.isFile()) {
+                    const handle = await open(
+                        entry.path,
+                        fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0),
+                    );
+
+                    try {
+                        const stats = await handle.stat();
+
+                        const reader = Readable.toWeb(
+                            Readable.from(readContent(entry.path, handle, stats, corruptedFiles)),
+                        ) as ReadableStream<Uint8Array>;
+                        await zip.add(name, reader, {
+                            unixMode: stats.mode,
+                            lastModDate: stats.mtime,
+                        });
+                    } finally {
+                        await handle.close();
                     }
 
-                    throw error;
+                    entryCount++;
+                    fileCount++;
+
+                    logDebug(`Adding file: ${entry.path}`);
+                } else {
+                    logWarning(
+                        msg.get("warn.unableToProcessUnknownType", {
+                            path: entry.path,
+                        }),
+                    );
                 }
+            } catch (error) {
+                const message = formatKnownError(error, {
+                    path: entry.path,
+                });
+
+                if (message) {
+                    logWarning(message);
+                    continue;
+                }
+
+                throw error;
             }
-
-            if (entryCount <= 0) throw new Error(msg.get("err.nothingAdded"));
-
-            tar.finalize();
-            console.log(
-                msg.get("info.addedFiles", {
-                    count: fileCount,
-                }),
-            );
-        } catch (error) {
-            tar.destroy(error instanceof Error ? error : new Error(String(error)));
-            await stream.catch(() => {});
-            throw error;
         }
 
-        await stream;
-        return {
-            hash: getHash(),
-            size: getSize(),
-            warnings: counters.warnings,
-        };
-    });
+        if (entryCount <= 0) throw new Error(msg.get("err.nothingAdded"));
+
+        await zip.close();
+        console.log(
+            msg.get("info.addedFiles", {
+                count: fileCount,
+            }),
+        );
+    } catch (error) {
+        hasher.destroy(error instanceof Error ? error : new Error(String(error)));
+        await stream.catch(() => {});
+        throw error;
+    }
+
+    await stream;
+    return {
+        hash: getHash(),
+        size: getSize(),
+        corruptedFiles,
+    };
 }
 
-// Convert all paths to relative paths. This prevents absolute paths inside the TAR archive from overwriting system
+// Convert all paths to relative paths. This prevents absolute paths inside the archive from overwriting system
 // files. For example, a /etc/passwd entry in the archive could otherwise overwrite /etc/passwd on the target system
 // during extraction.
 function getName(entryPath: string) {
     return path.posix.relative("/", toPosixPath(entryPath));
 }
 
-// The tar header declares the exact size of the file, so exactly that many bytes must follow. If the file grows while
-// archiving, the additional data is ignored. If the file shrinks or cannot be read completely, the remaining bytes
-// are padded with zeros to preserve the declared size.
-async function* readFixedSize(handle: FileHandle, entryPath: string, size: number) {
-    const chunkSize = 64 * 1024;
-
-    let read = 0;
-
+// Reads the file up to the size it had when it was opened so that a file that keeps growing cannot make the entry
+// endless. Since ZIP stores the size and checksum after the content, the archive stays valid even if the file changes
+// while being read.
+async function* readContent(filePath: string, handle: FileHandle, stats: Stats, corruptedFiles: string[]) {
     try {
-        if (size > 0) {
-            for await (const chunk of handle.createReadStream({ start: 0, end: size - 1, autoClose: false })) {
-                read += chunk.length;
-                yield chunk;
-            }
+        if (stats.size > 0) yield* handle.createReadStream({ end: stats.size - 1, autoClose: false });
+
+        const after = await handle.stat();
+
+        if (after.size !== stats.size || after.mtimeMs !== stats.mtimeMs) {
+            logWarning(
+                msg.get("warn.fileChangedWhileArchiving", {
+                    path: filePath,
+                }),
+            );
+            corruptedFiles.push(filePath);
         }
     } catch {
-        // Handled below by padding the missing part.
+        // Interrupted read (e.g. destination failure or cancelled entry). The error surfaces separately and the
+        // archive is discarded.
     }
-
-    if (read < size) {
-        logWarning(msg.get("warn.fileChangedWhileArchiving", { path: entryPath }));
-
-        while (read < size) {
-            const length = Math.min(chunkSize, size - read);
-            yield Buffer.alloc(length);
-            read += length;
-        }
-    }
-}
-
-// Using pipe is faster than invoking a pipeline for every individual file added to the stream, because pipeline
-// attaches additional event listeners and cleanup handlers for each file.
-function pipeFile(src: Readable, dst: Writable) {
-    return new Promise<void>((resolve, reject) => {
-        const onError = (error: Error) => {
-            src.destroy();
-            dst.destroy();
-            reject(error);
-        };
-
-        src.on("error", onError);
-        dst.on("error", onError);
-        dst.on("finish", resolve);
-        src.pipe(dst);
-    });
 }

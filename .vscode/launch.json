@@ -25,7 +25,6 @@
                 "--sftp-user=test",
                 "--sftp-password=test",
                 "--keep=3",
-                "--compress=zstd"
             ]
         },
     ]
