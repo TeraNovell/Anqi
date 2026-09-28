@@ -1,10 +1,10 @@
+import { BlobReader, TextWriter, ZipReader, type Entry, type FileEntry } from "@zip.js/zip.js";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough, Writable } from "node:stream";
 import { test, type TestContext } from "node:test";
-import { BlobReader, TextWriter, ZipReader, type Entry, type FileEntry } from "@zip.js/zip.js";
 import { writeArchive } from "./writer.ts";
 
 async function makeFixtureDir(t: TestContext): Promise<string> {
@@ -60,6 +60,33 @@ test("writeArchive keeps a broken symlink instead of dropping it", async (t) => 
     assert.ok(link, "the broken symlink should be present");
     assert.ok(link.symlink, "the entry should be marked as a symlink");
     assert.equal(await link.getData(new TextWriter()), target);
+});
+
+// Extractors like unzip only restore the metadata of a directory (e.g. permissions and timestamps) if they create it
+// from its own directory entry in the zip. A directory that is implicitly created for a file entry that appears before
+// the directory's own entry would lose its metadata.
+test("writeArchive writes directories before their contents", async (t) => {
+    const root = await makeFixtureDir(t);
+    await mkdir(path.join(root, "top", "sub", "empty"), { recursive: true });
+    await writeFile(path.join(root, "top", "a.txt"), "a");
+    await writeFile(path.join(root, "top", "sub", "b.txt"), "b");
+
+    for (const source of [path.join(root, "top"), `${root}/top/*`]) {
+        const names = [...(await archiveEntries([source])).keys()];
+        const previousNames = new Set<string>();
+
+        for (const name of names) {
+            // Checking the direct parent is enough: if every entry comes after its parent, it also comes after all
+            // directories above it.
+            const parent = `${path.posix.dirname(name)}/`;
+
+            if (names.includes(parent)) {
+                assert.ok(previousNames.has(parent), `${parent} should come before ${name} (source: ${source})`);
+            }
+
+            previousNames.add(name);
+        }
+    }
 });
 
 test("writeArchive rejects with the real error when the destination fails", async (t) => {
