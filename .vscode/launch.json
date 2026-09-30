@@ -1,0 +1,34 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Anqi: Local backup",
+            "type": "intellij_jvm",
+            "request": "launch",
+            "mainClass": "io.github.teranovell.anqi.cli.MainKt",
+            "file": "${workspaceFolder}/src/main/kotlin/io/github/teranovell/anqi/cli/Main.kt",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "preLaunchTask": "Compile",
+            "args": [
+                "--debug",
+                "--src=./src/**/*.ts",
+                "--src=./.devcontainer/**/*",
+                "--dst=/tmp",
+                "--target=sftp",
+                "--sftp-host=sftp",
+                "--sftp-port=2222",
+                "--sftp-user=test",
+                "--sftp-password=test",
+                "--keep=1",
+            ]
+        },
+        {
+            "name": "Anqi: Attach to JVM (5005)",
+            "type": "intellij_jvm",
+            "request": "attach",
+            "hostName": "localhost",
+            "port": 5005
+        }
+    ]
+}
