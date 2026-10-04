@@ -1,7 +1,7 @@
 package io.github.teranovell.anqi.archive
 
 import io.github.teranovell.anqi.AnqiException
-import io.github.teranovell.anqi.PosixPaths
+import io.github.teranovell.anqi.PosixPath
 import io.github.teranovell.anqi.log.Logger
 import io.github.teranovell.anqi.log.Message
 import io.github.teranovell.anqi.walk.WalkEntry
@@ -15,11 +15,8 @@ import java.io.IOException
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.channels.SeekableByteChannel
-import java.nio.file.FileSystems
-import java.nio.file.Files
+import java.nio.file.*
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
-import java.nio.file.OpenOption
-import java.nio.file.Path
 import java.nio.file.StandardOpenOption.READ
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
@@ -71,15 +68,16 @@ internal fun writeArchive(
     return ArchiveData(
         digest.digest().toHexString(),
         counter.byteCount,
-        writer.corruptedFiles,
-        walkResult.inaccessiblePaths
+        writer.incompleteFiles,
+        walkResult.inaccessiblePaths + writer.inaccessiblePaths
     )
 }
 
 private class ArchiveWriter(private val zip: ZipArchiveOutputStream) {
     private data class Stat(val mode: Int, val lastModifiedTime: FileTime)
 
-    val corruptedFiles = mutableSetOf<String>()
+    val incompleteFiles = mutableSetOf<String>()
+    val inaccessiblePaths = mutableSetOf<String>()
 
     var entryCount = 0
         private set
@@ -138,8 +136,11 @@ private class ArchiveWriter(private val zip: ZipArchiveOutputStream) {
 
                 else -> Logger.logWarning(Message.WARN_UNABLE_TO_PROCESS_UNKNOWN_TYPE.get("path" to path))
             }
+        } catch (e: NoSuchFileException) {
+            Logger.warnOrThrow(e, path)
         } catch (e: IOException) {
             Logger.warnOrThrow(e, path)
+            inaccessiblePaths.add(path.toString())
         }
     }
 
@@ -158,7 +159,7 @@ private class ArchiveWriter(private val zip: ZipArchiveOutputStream) {
             } catch (_: IOException) {
                 // The entry is kept with the content read so far, so the archive stays valid.
                 Logger.logWarning(Message.WARN_FILE_READ_FAILED.get("path" to path))
-                corruptedFiles += path.toString()
+                incompleteFiles += path.toString()
                 return
             }
 
@@ -171,7 +172,7 @@ private class ArchiveWriter(private val zip: ZipArchiveOutputStream) {
 
         if (channel.size() != size || lstat(path).lastModifiedTime != stat.lastModifiedTime) {
             Logger.logWarning(Message.WARN_FILE_CHANGED_WHILE_ARCHIVING.get("path" to path))
-            corruptedFiles += path.toString()
+            incompleteFiles += path.toString()
         }
     }
 
@@ -183,7 +184,7 @@ private class ArchiveWriter(private val zip: ZipArchiveOutputStream) {
     // Convert all paths to relative paths. This prevents absolute paths inside the archive from overwriting system
     // files. For example, a /etc/passwd entry in the archive could otherwise overwrite /etc/passwd on the target
     // system during extraction.
-    private fun getName(path: Path) = PosixPaths.toPosixPath((path.root?.relativize(path) ?: path).toString())
+    private fun getName(path: Path) = PosixPath.toPosixPath((path.root?.relativize(path) ?: path).toString())
 
     private fun lstat(path: Path): Stat {
         if (hasUnixView) {

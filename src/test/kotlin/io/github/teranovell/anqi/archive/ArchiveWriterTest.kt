@@ -1,6 +1,6 @@
 package io.github.teranovell.anqi.archive
 
-import io.github.teranovell.anqi.PosixPaths
+import io.github.teranovell.anqi.PosixPath
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipFile
 import org.apache.commons.compress.utils.SeekableInMemoryByteChannel
@@ -21,7 +21,7 @@ class ArchiveWriterTest {
 
     private data class Archived(val entry: ZipArchiveEntry, val content: String)
 
-    private val prefix get() = PosixPaths.toPosixPath(root.root.relativize(root).toString())
+    private val prefix get() = PosixPath.toPosixPath(root.root.relativize(root).toString())
 
     // Writes the archive to a buffer and reads the entries back from it in the order they are stored, so tests assert
     // on what writeArchive actually produced instead of just that it did not throw.
@@ -69,7 +69,7 @@ class ArchiveWriterTest {
         root.resolve("docs/a.md").writeText("a")
         root.resolve("docs/sub/b.md").writeText("b")
 
-        val entries = archiveEntries(listOf(PosixPaths.toPosixPath(root.toString()) + "/docs/{*.txt,sub}"))
+        val entries = archiveEntries(listOf(PosixPath.toPosixPath(root.toString()) + "/docs/{*.txt,sub}"))
 
         assertEquals(setOf("$prefix/docs/a.txt", "$prefix/docs/sub/", "$prefix/docs/sub/b.md"), entries.keys)
     }
@@ -83,7 +83,7 @@ class ArchiveWriterTest {
         root.resolve("top/a.txt").writeText("a")
         root.resolve("top/sub/b.txt").writeText("b")
 
-        for (source in listOf(root.resolve("top").toString(), PosixPaths.toPosixPath(root.toString()) + "/top/*")) {
+        for (source in listOf(root.resolve("top").toString(), PosixPath.toPosixPath(root.toString()) + "/top/*")) {
             val names = archiveEntries(listOf(source)).keys.toList()
             val previousNames = mutableSetOf<String>()
 

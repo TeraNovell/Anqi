@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Anqi: Local backup",
+            "name": "Anqi: SFTP backup",
             "type": "intellij_jvm",
             "request": "launch",
             "mainClass": "io.github.teranovell.anqi.cli.MainKt",
@@ -20,6 +20,7 @@
                 "--sftp-port=2222",
                 "--sftp-user=test",
                 "--sftp-password=test",
+                "--sftp-skip-key-verification",
                 "--keep=1",
             ]
         },

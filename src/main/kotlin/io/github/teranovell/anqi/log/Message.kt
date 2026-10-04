@@ -30,6 +30,7 @@ enum class Message(private val template: String) {
     ERR_NONE_EXIST_DESTINATION("Destination {{path}} is not a directory or does not exist!"),
     ERR_DESTINATION_EXISTS("Archive creation failed: The destination {{path}} already exists!"),
     ERR_NOTHING_ADDED("Archive creation failed: Nothing could be added to the archive!"),
+    ERR_INVALID_MANIFEST("Archive cleanup failed: The manifest {{path}} could not be processed!"),
     ERR_KNOWN_HOSTS(
         "Unable to load ~/.ssh/known_hosts to verify the SFTP server. Add its host key, e.g. with " +
             "\"ssh-keyscan -p {{port}} {{host}} >> ~/.ssh/known_hosts\"!",

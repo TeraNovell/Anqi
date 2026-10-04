@@ -1,11 +1,11 @@
 package io.github.teranovell.anqi.cli
 
 import io.github.teranovell.anqi.AnqiException
-import io.github.teranovell.anqi.PosixPaths
+import io.github.teranovell.anqi.PosixPath
 import io.github.teranovell.anqi.archive.ArchiveDescription
+import io.github.teranovell.anqi.archive.LocalArchiver
+import io.github.teranovell.anqi.archive.SftpArchiver
 import io.github.teranovell.anqi.archive.SftpConfig
-import io.github.teranovell.anqi.archive.createLocalArchive
-import io.github.teranovell.anqi.archive.createSftpArchive
 import io.github.teranovell.anqi.log.Logger
 import io.github.teranovell.anqi.log.Message
 import picocli.CommandLine
@@ -147,21 +147,21 @@ class Anqi : Callable<Int> {
 
         val archivePath = when (target) {
             Target.LOCAL -> Path(dst).resolve(archiveDescription.filename).toString()
-            Target.SFTP -> PosixPaths.join(dst, archiveDescription.filename)
+            Target.SFTP -> PosixPath.join(dst, archiveDescription.filename)
         }
         println(Message.INFO_CREATING_ARCHIVE.get("path" to archivePath))
 
         val start = System.nanoTime()
 
         val archiveData = when (target) {
-            Target.LOCAL -> createLocalArchive(src, dst, archiveDescription, keep)
-            Target.SFTP -> createSftpArchive(src, dst, archiveDescription, keep, sftpConfig())
+            Target.LOCAL -> LocalArchiver(src, dst, archiveDescription, keep).use { it.create() }
+            Target.SFTP -> SftpArchiver(src, dst, archiveDescription, keep, sftpConfig()).use { it.create() }
         }
 
         val time = "%.2f".format(Locale.ROOT, (System.nanoTime() - start) / 1e9)
         println(Message.INFO_DONE_IN.get("time" to time))
 
-        return if (archiveData.corruptedFiles.isEmpty() && archiveData.inaccessiblePaths.isEmpty()) 0 else EXIT_INCOMPLETE
+        return if (archiveData.isComplete()) 0 else EXIT_INCOMPLETE
     }
 
     private fun sftpConfig(): SftpConfig {
@@ -202,7 +202,7 @@ class Anqi : Callable<Int> {
 private fun warnIfFileNamesAreNotUtf8() {
     val encoding = System.getProperty("native.encoding")
 
-    if (!PosixPaths.IS_WINDOWS && !encoding.equals("UTF-8", ignoreCase = true)) {
+    if (!PosixPath.IS_WINDOWS && !encoding.equals("UTF-8", ignoreCase = true)) {
         Logger.logWarning(Message.WARN_NO_UTF8_LOCALE.get("encoding" to encoding))
     }
 }

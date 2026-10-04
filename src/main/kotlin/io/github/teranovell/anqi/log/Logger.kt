@@ -1,7 +1,6 @@
 package io.github.teranovell.anqi.log
 
 import picocli.CommandLine.Help.Ansi
-import java.io.IOException
 import java.io.UncheckedIOException
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -48,7 +47,7 @@ object Logger {
             else -> null
         }
 
-    fun warnOrThrow(e: IOException, path: Any) {
+    fun warnOrThrow(e: Throwable, path: Any) {
         logWarning(formatKnownError(e, path) ?: throw e)
     }
 

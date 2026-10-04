@@ -1,6 +1,6 @@
 package io.github.teranovell.anqi.walk
 
-import io.github.teranovell.anqi.PosixPaths
+import io.github.teranovell.anqi.PosixPath
 import java.nio.file.FileSystems
 import java.nio.file.Path
 import java.nio.file.PathMatcher
@@ -22,13 +22,13 @@ internal class GlobPattern(source: String) {
     private val hasGlobstar: Boolean
 
     init {
-        val parts = PosixPaths.toPosixPath(source).split("/")
+        val parts = PosixPath.toPosixPath(source).split("/")
         val fixed = parts.takeWhile { !isPattern(it) }
         val rest = parts.drop(fixed.size).joinToString("/")
 
         base = (if (fixed.isEmpty()) Path("") else Path(fixed.joinToString("/") + "/")).toAbsolutePath().normalize()
 
-        val prefix = escape(PosixPaths.toPosixPath(base.toString())).removeSuffix("/") + "/"
+        val prefix = escape(PosixPath.toPosixPath(base.toString())).removeSuffix("/") + "/"
         val pattern = prefix + rest
 
         // If the pattern matches a directory, everything inside it should be backed up too, just like `--src <dir>`
@@ -71,7 +71,7 @@ internal class GlobPattern(source: String) {
 
         // The base is a literal path, so characters with a special meaning in globs are escaped.
         private fun escape(location: String): String {
-            if (PosixPaths.IS_WINDOWS) return location
+            if (PosixPath.IS_WINDOWS) return location
 
             return buildString(location.length) {
                 for (character in location) {
